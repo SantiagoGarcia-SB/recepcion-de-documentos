@@ -21,7 +21,7 @@ const App = (function() {
     'Cambio De Roles':                          true,
     'Confirmación Destino':                     true,
     'Desistimiento Y Continuidad De Solicitud': true,
-    'Deudor Uar':                               true,
+    'Deudor UAR':                               true,
     'Disminución Canon':                        true,
     'Extractos Y/O DR':                         true,
     'Opción 1+1':                               true,
@@ -38,6 +38,7 @@ const App = (function() {
 
   // ─── ESTADO ────────────────────────────────────────────────────
   let selectedFiles = [];
+  let selectedTipos = [];
   let userData = { email: '', name: '', initials: '' };
 
   // ─── CACHE DOM ─────────────────────────────────────────────────
@@ -50,7 +51,7 @@ const App = (function() {
     DOM.successTitle      = document.getElementById('success-title');
     DOM.successSubtitle   = document.getElementById('success-subtitle');
     DOM.successMeta       = document.getElementById('success-meta');
-    DOM.tipoProceso       = document.getElementById('tipo-proceso');
+    DOM.tipoEstudioContainer = document.getElementById('tipo-estudio-container');
     DOM.hintSi            = document.getElementById('hint-si');
     DOM.hintNo            = document.getElementById('hint-no');
     DOM.anexoSection      = document.getElementById('anexo-section');
@@ -82,19 +83,29 @@ const App = (function() {
   function init() {
     console.log('[App.init] Inicializando aplicación');
     cacheDom();
-    populateSelect();
+    populateCheckboxes();
     bindEvents();
     loadUser();
   }
 
-  function populateSelect() {
-    console.log('[populateSelect] Poblando select con tipos de proceso');
-    var select = DOM.tipoProceso;
+  function populateCheckboxes() {
+    console.log('[populateCheckboxes] Poblando checkboxes con tipos de estudio');
+    var container = DOM.tipoEstudioContainer;
     Object.keys(TIPOS_CON_ANEXO).forEach(function(tipo) {
-      var opt = document.createElement('option');
-      opt.value = tipo;
-      opt.textContent = tipo;
-      select.appendChild(opt);
+      var label = document.createElement('label');
+      label.className = 'flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-slate-100 cursor-pointer transition-colors duration-150';
+      var checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = tipo;
+      checkbox.name = 'tipo-estudio';
+      checkbox.className = 'w-4 h-4 rounded border-slate-300 text-brand-red focus:ring-brand-red/20 cursor-pointer shrink-0';
+      var span = document.createElement('span');
+      span.className = 'text-sm text-slate-700 select-none';
+      span.textContent = tipo;
+      label.appendChild(checkbox);
+      label.appendChild(span);
+      container.appendChild(label);
+      checkbox.addEventListener('change', handleTipoChange);
     });
   }
 
@@ -117,7 +128,6 @@ const App = (function() {
 
   // ─── EVENTOS ───────────────────────────────────────────────────
   function bindEvents() {
-    DOM.tipoProceso.addEventListener('change', handleTipoChange);
     DOM.dropZone.addEventListener('dragover', handleDragOver);
     DOM.dropZone.addEventListener('dragleave', handleDragLeave);
     DOM.dropZone.addEventListener('drop', handleDrop);
@@ -141,18 +151,25 @@ const App = (function() {
     });
   }
 
+  function getSelectedTipos() {
+    var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]:checked');
+    return Array.from(checkboxes).map(function(cb) { return cb.value; });
+  }
+
   function handleTipoChange() {
-    var tipo = DOM.tipoProceso.value;
-    console.log('[handleTipoChange] Tipo seleccionado:', tipo);
+    selectedTipos = getSelectedTipos();
+    console.log('[handleTipoChange] Tipos seleccionados:', JSON.stringify(selectedTipos));
     DOM.hintSi.classList.add('hidden');
     DOM.hintSi.classList.remove('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
     DOM.hintNo.classList.add('hidden');
     DOM.hintNo.classList.remove('bg-amber-50', 'border-amber-200', 'text-amber-700', 'flex');
 
-    if (!tipo) { DOM.anexoSection.classList.add('hidden'); return; }
+    if (selectedTipos.length === 0) { DOM.anexoSection.classList.add('hidden'); return; }
 
     DOM.anexoSection.classList.remove('hidden');
-    if (TIPOS_CON_ANEXO[tipo]) {
+    var anyRequiresAnexo = selectedTipos.some(function(tipo) { return TIPOS_CON_ANEXO[tipo]; });
+
+    if (anyRequiresAnexo) {
       DOM.hintSi.classList.remove('hidden');
       DOM.hintSi.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
       DOM.anexoRequired.style.display = 'inline';
@@ -300,19 +317,21 @@ const App = (function() {
     var ok = true;
     var sol = document.getElementById('solicitud').value.trim();
     var pol = document.getElementById('poliza').value.trim();
-    var tipo = DOM.tipoProceso.value;
+    var tipos = getSelectedTipos();
     var fecha = document.getElementById('fecha-hora').value;
 
     ['err-solicitud','err-poliza','err-tipo','err-fecha','err-file'].forEach(clearError);
     if (!sol)   { showFieldError('err-solicitud'); ok = false; }
     if (!pol)   { showFieldError('err-poliza');    ok = false; }
-    if (!tipo)  { showFieldError('err-tipo');      ok = false; }
+    if (tipos.length === 0) { showFieldError('err-tipo'); ok = false; }
     if (!fecha) { showFieldError('err-fecha');     ok = false; }
-    if (tipo && TIPOS_CON_ANEXO[tipo] && selectedFiles.length === 0) {
-      showFieldError('err-file', 'Este proceso requiere al menos un documento adjunto.');
+
+    var anyRequiresAnexo = tipos.some(function(tipo) { return TIPOS_CON_ANEXO[tipo]; });
+    if (anyRequiresAnexo && selectedFiles.length === 0) {
+      showFieldError('err-file', 'Al menos un tipo de estudio seleccionado requiere documento adjunto.');
       ok = false;
     }
-    console.log('[validate] Resultado:', ok ? 'VÁLIDO' : 'INVÁLIDO', '| campos:', JSON.stringify({ sol: sol, pol: pol, tipo: tipo, fecha: fecha, archivos: selectedFiles.length }));
+    console.log('[validate] Resultado:', ok ? 'VÁLIDO' : 'INVÁLIDO', '| campos:', JSON.stringify({ sol: sol, pol: pol, tipos: tipos, fecha: fecha, archivos: selectedFiles.length }));
     return ok;
   }
 
@@ -335,8 +354,8 @@ const App = (function() {
     });
   }
 
-  function uploadFile(file, solicitud, tipoProceso, onProgress) {
-    console.log('[uploadFile] Iniciando upload — archivo:', file.name, '| solicitud:', solicitud, '| tipoProceso:', tipoProceso);
+  function uploadFile(file, solicitud, tipoEstudio, onProgress) {
+    console.log('[uploadFile] Iniciando upload — archivo:', file.name, '| solicitud:', solicitud, '| tipoEstudio:', tipoEstudio);
     return new Promise(function(resolve, reject) {
       // 1. Leemos el archivo a Base64 primero
       readFileAsBase64(file)
@@ -354,13 +373,13 @@ const App = (function() {
             fileName:    file.name,
             fileType:    file.type || 'application/octet-stream',
             solicitud:   solicitud,
-            tipoProceso: tipoProceso,
+            tipoEstudio: tipoEstudio,
           };
           console.log('[uploadFile] Antes de google.script.run.uploadSingleFile —', JSON.stringify({
             fileName: uploadParams.fileName,
             fileType: uploadParams.fileType,
             solicitud: uploadParams.solicitud,
-            tipoProceso: uploadParams.tipoProceso,
+            tipoEstudio: uploadParams.tipoEstudio,
             base64Length: uploadParams.base64.length
           }));
 
@@ -399,12 +418,13 @@ const App = (function() {
     setLoading(true);
     hideAlert();
 
-    var solicitud   = document.getElementById('solicitud').value.trim();
-    var poliza      = document.getElementById('poliza').value.trim();
-    var tipoProceso = DOM.tipoProceso.value;
-    var fechaHora   = document.getElementById('fecha-hora').value;
+    var solicitud    = document.getElementById('solicitud').value.trim();
+    var poliza       = document.getElementById('poliza').value.trim();
+    var tiposEstudio = getSelectedTipos();
+    var tipoEstudio  = tiposEstudio.join(', ');
+    var fechaHora    = document.getElementById('fecha-hora').value;
 
-    console.log('[handleSubmit] Datos del formulario:', JSON.stringify({ solicitud: solicitud, poliza: poliza, tipoProceso: tipoProceso, fechaHora: fechaHora, archivos: selectedFiles.length }));
+    console.log('[handleSubmit] Datos del formulario:', JSON.stringify({ solicitud: solicitud, poliza: poliza, tipoEstudio: tipoEstudio, fechaHora: fechaHora, archivos: selectedFiles.length }));
 
     try {
       var filesCount = selectedFiles.length;
@@ -417,7 +437,7 @@ const App = (function() {
         for (var i = 0; i < filesCount; i++) {
           updateUploadLabel('Subiendo ' + (i + 1) + ' de ' + filesCount + ': ' + selectedFiles[i].name);
           console.log('[handleSubmit] Subiendo archivo', (i + 1), 'de', filesCount, ':', selectedFiles[i].name);
-          await uploadFile(selectedFiles[i], solicitud, tipoProceso, function() {
+          await uploadFile(selectedFiles[i], solicitud, tipoEstudio, function() {
             var pct = Math.round(((i + 1) / filesCount) * 100);
             updateUploadBar(pct);
           });
@@ -431,7 +451,7 @@ const App = (function() {
       var payload = {
         solicitud:   solicitud,
         poliza:      poliza,
-        tipoProceso: tipoProceso,
+        tipoEstudio: tipoEstudio,
         fechaHora:   fechaHora,
         filesCount:  filesCount,
       };
@@ -531,7 +551,7 @@ const App = (function() {
       row('ID de Registro',       '#' + result.id),
       row('N.\u00BA de Solicitud', payload.solicitud),
       row('N.\u00BA de P\u00F3liza', payload.poliza),
-      row('Tipo de Proceso',      payload.tipoProceso),
+      row('Tipo de Estudio',      payload.tipoEstudio),
       row('Archivos adjuntos',    result.filesCount + ' archivo(s)'),
       row('Carpeta de Solicitud', folderLink),
       row('Fecha llegada correo', formatDT(payload.fechaHora)),
@@ -557,6 +577,8 @@ const App = (function() {
   function reset() {
     console.log('[App.reset] Reiniciando formulario');
     DOM.form.reset();
+    selectedTipos = [];
+    DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]').forEach(function(cb) { cb.checked = false; });
     DOM.formSection.style.display = '';
     DOM.successScreen.classList.add('hidden');
     DOM.successScreen.classList.remove('animate-fade-in-up');
