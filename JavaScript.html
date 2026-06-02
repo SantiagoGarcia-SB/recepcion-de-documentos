@@ -300,19 +300,21 @@ const App = (function() {
     var ok = true;
     var sol = document.getElementById('solicitud').value.trim();
     var pol = document.getElementById('poliza').value.trim();
+    var tipoSolicitud = document.getElementById('tipo-solicitud').value;
     var tipo = DOM.tipoProceso.value;
     var fecha = document.getElementById('fecha-hora').value;
 
-    ['err-solicitud','err-poliza','err-tipo','err-fecha','err-file'].forEach(clearError);
-    if (!sol)   { showFieldError('err-solicitud'); ok = false; }
-    if (!pol)   { showFieldError('err-poliza');    ok = false; }
-    if (!tipo)  { showFieldError('err-tipo');      ok = false; }
-    if (!fecha) { showFieldError('err-fecha');     ok = false; }
+    ['err-solicitud','err-poliza','err-tipo-solicitud','err-tipo','err-fecha','err-file'].forEach(clearError);
+    if (!sol)            { showFieldError('err-solicitud');      ok = false; }
+    if (!pol)            { showFieldError('err-poliza');         ok = false; }
+    if (!tipoSolicitud) { showFieldError('err-tipo-solicitud'); ok = false; }
+    if (!tipo)           { showFieldError('err-tipo');           ok = false; }
+    if (!fecha)          { showFieldError('err-fecha');          ok = false; }
     if (tipo && TIPOS_CON_ANEXO[tipo] && selectedFiles.length === 0) {
       showFieldError('err-file', 'Este proceso requiere al menos un documento adjunto.');
       ok = false;
     }
-    console.log('[validate] Resultado:', ok ? 'VÁLIDO' : 'INVÁLIDO', '| campos:', JSON.stringify({ sol: sol, pol: pol, tipo: tipo, fecha: fecha, archivos: selectedFiles.length }));
+    console.log('[validate] Resultado:', ok ? 'VÁLIDO' : 'INVÁLIDO', '| campos:', JSON.stringify({ sol: sol, pol: pol, tipoSolicitud: tipoSolicitud, tipo: tipo, fecha: fecha, archivos: selectedFiles.length }));
     return ok;
   }
 
@@ -399,12 +401,13 @@ const App = (function() {
     setLoading(true);
     hideAlert();
 
-    var solicitud   = document.getElementById('solicitud').value.trim();
-    var poliza      = document.getElementById('poliza').value.trim();
-    var tipoProceso = DOM.tipoProceso.value;
-    var fechaHora   = document.getElementById('fecha-hora').value;
+    var solicitud      = document.getElementById('solicitud').value.trim();
+    var poliza         = document.getElementById('poliza').value.trim();
+    var tipoSolicitud  = document.getElementById('tipo-solicitud').value;
+    var tipoProceso    = DOM.tipoProceso.value;
+    var fechaHora      = document.getElementById('fecha-hora').value;
 
-    console.log('[handleSubmit] Datos del formulario:', JSON.stringify({ solicitud: solicitud, poliza: poliza, tipoProceso: tipoProceso, fechaHora: fechaHora, archivos: selectedFiles.length }));
+    console.log('[handleSubmit] Datos del formulario:', JSON.stringify({ solicitud: solicitud, poliza: poliza, tipoSolicitud: tipoSolicitud, tipoProceso: tipoProceso, fechaHora: fechaHora, archivos: selectedFiles.length }));
 
     try {
       var filesCount = selectedFiles.length;
@@ -429,11 +432,12 @@ const App = (function() {
 
       // 2. Registrar en el Sheet
       var payload = {
-        solicitud:   solicitud,
-        poliza:      poliza,
-        tipoProceso: tipoProceso,
-        fechaHora:   fechaHora,
-        filesCount:  filesCount,
+        solicitud:      solicitud,
+        poliza:         poliza,
+        tipoSolicitud:  tipoSolicitud,
+        tipoProceso:    tipoProceso,
+        fechaHora:      fechaHora,
+        filesCount:     filesCount,
       };
 
       // LOG CRÍTICO: Datos antes de llamar a submitFormData
@@ -531,6 +535,7 @@ const App = (function() {
       row('ID de Registro',       '#' + result.id),
       row('N.\u00BA de Solicitud', payload.solicitud),
       row('N.\u00BA de P\u00F3liza', payload.poliza),
+      row('Tipo de Solicitud',    payload.tipoSolicitud),
       row('Tipo de Proceso',      payload.tipoProceso),
       row('Archivos adjuntos',    result.filesCount + ' archivo(s)'),
       row('Carpeta de Solicitud', folderLink),

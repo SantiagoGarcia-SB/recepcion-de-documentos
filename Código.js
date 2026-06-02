@@ -54,7 +54,12 @@ const HEADERS = [
   'URL Carpeta de Solicitud',
   'Fecha y Hora de Registro',
   'Registrado Por (Nombre)',
-  'Email Asignador',
+  'Email Registrador',
+  'Nombre Evaluador',
+  'Estado Evaluación',
+  'Motivo Devolución',
+  'Notificacion Gmail Chat',
+  'Tipo de solicitud',
 ];
 
 // ═════════════════════════════════════════════════════════════════
@@ -294,6 +299,11 @@ function submitFormData(data) {
       now,
       uData.name,
       uData.email,
+      '',  // Nombre Evaluador
+      '',  // Estado Evaluación
+      '',  // Motivo Devolución
+      '',  // Notificacion Gmail Chat
+      (data.tipoSolicitud || '').toString().trim(),
     ];
     console.log('[submitFormData] Antes de sheet.appendRow — ' + JSON.stringify({
       nextId: nextId,
@@ -305,7 +315,8 @@ function submitFormData(data) {
       folderUrl: folderUrl,
       now: now.toISOString(),
       userName: uData.name,
-      userEmail: uData.email
+      userEmail: uData.email,
+      tipoSolicitud: (data.tipoSolicitud || '').toString().trim()
     }));
 
     sheet.appendRow(rowData);
@@ -396,7 +407,7 @@ function _setupSheetHeaders(sheet) {
   headerRange.setFontColor('#FFFFFF');
   headerRange.setBackground('#253150');
   headerRange.setHorizontalAlignment('center');
-  var widths = [90, 160, 140, 260, 130, 200, 300, 180, 200, 220];
+  var widths = [90, 160, 140, 260, 130, 200, 300, 180, 200, 220, 160, 160, 200, 180, 160];
   widths.forEach(function(w, i) { sheet.setColumnWidth(i + 1, w); });
   sheet.setFrozenRows(1);
 }
