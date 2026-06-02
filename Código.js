@@ -14,7 +14,7 @@ const CONFIG = {
   FOLDER_ID:      '18W_7bpKOMQrY4YJrrcqPw9Jr1G93pVa0',
 };
 
-const TIPOS_PROCESO = {
+const TIPOS_ESTUDIO = {
   'Aceptación LMI':                           true,
   'Actas':                                    true,
   'Actualizar Resultado':                     true,
@@ -48,7 +48,7 @@ const HEADERS = [
   'ID Registro',
   'Número de Solicitud',
   'Número de Póliza',
-  'Tipo de Proceso',
+  'Tipo de Estudio',
   'Archivos Adjuntos',
   'Fecha y Hora de Llegada del Correo',
   'URL Carpeta de Solicitud',
@@ -94,10 +94,10 @@ function getUserData() {
   return result;
 }
 
-function getTiposProceso() {
-  console.log('[getTiposProceso] Retornando lista de tipos de proceso');
-  return Object.keys(TIPOS_PROCESO).map(function(key) {
-    return { nombre: key, requiereAnexo: TIPOS_PROCESO[key] };
+function getTiposEstudio() {
+  console.log('[getTiposEstudio] Retornando lista de tipos de estudio');
+  return Object.keys(TIPOS_ESTUDIO).map(function(key) {
+    return { nombre: key, requiereAnexo: TIPOS_ESTUDIO[key] };
   });
 }
 
@@ -111,7 +111,7 @@ function getTiposProceso() {
 
 /**
  * Sube un archivo completo (para archivos <= 30 MB aprox).
- * @param {Object} params - { base64, fileName, fileType, solicitud, tipoProceso }
+ * @param {Object} params - { base64, fileName, fileType, solicitud, tipoEstudio }
  * @returns {{success: boolean}}
  */
 function uploadSingleFile(params) {
@@ -119,14 +119,14 @@ function uploadSingleFile(params) {
     fileName: params.fileName,
     fileType: params.fileType,
     solicitud: params.solicitud,
-    tipoProceso: params.tipoProceso,
+    tipoEstudio: params.tipoEstudio,
     base64Length: params.base64 ? params.base64.length : 0
   }));
   try {
     var folder = _getOrCreateSolicitudFolder(params.solicitud);
     var now = new Date();
     var datePrefix = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd_HH-mm-ss');
-    var newName = datePrefix + ' - ' + params.tipoProceso + ' - ' + params.fileName;
+    var newName = datePrefix + ' - ' + params.tipoEstudio + ' - ' + params.fileName;
 
     var decoded = Utilities.base64Decode(params.base64);
     var blob = Utilities.newBlob(decoded, params.fileType || 'application/octet-stream', newName);
@@ -211,7 +211,7 @@ function appendChunkToTemp(params) {
 
 /**
  * Finaliza el upload: lee el temp, decodifica, crea archivo final, borra temp.
- * @param {Object} params - { tempFileId, fileName, fileType, solicitud, tipoProceso }
+ * @param {Object} params - { tempFileId, fileName, fileType, solicitud, tipoEstudio }
  * @returns {{success: boolean}}
  */
 function finalizeUpload(params) {
@@ -220,7 +220,7 @@ function finalizeUpload(params) {
     fileName: params.fileName,
     fileType: params.fileType,
     solicitud: params.solicitud,
-    tipoProceso: params.tipoProceso
+    tipoEstudio: params.tipoEstudio
   }));
   try {
     var tempFile = DriveApp.getFileById(params.tempFileId);
@@ -230,7 +230,7 @@ function finalizeUpload(params) {
     var folder = _getOrCreateSolicitudFolder(params.solicitud);
     var now = new Date();
     var datePrefix = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd_HH-mm-ss');
-    var newName = datePrefix + ' - ' + params.tipoProceso + ' - ' + params.fileName;
+    var newName = datePrefix + ' - ' + params.tipoEstudio + ' - ' + params.fileName;
 
     var decoded = Utilities.base64Decode(fullBase64);
     var blob = Utilities.newBlob(decoded, params.fileType || 'application/octet-stream', newName);
@@ -264,17 +264,28 @@ function finalizeUpload(params) {
 function submitFormData(data) {
   console.log('[submitFormData] Entrada — data: ' + JSON.stringify(data));
   try {
-    if (!TIPOS_PROCESO.hasOwnProperty(data.tipoProceso)) {
-      console.log('[submitFormData] Tipo de proceso no reconocido: ' + data.tipoProceso);
-      return { success: false, error: 'Tipo de proceso no reconocido.' };
+    var tipoEstudio = (data.tipoEstudio || '').toString().trim();
+    var tiposArray = tipoEstudio.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
+
+    if (tiposArray.length === 0) {
+      console.log('[submitFormData] No se recibieron tipos de estudio');
+      return { success: false, error: 'Debes seleccionar al menos un tipo de estudio.' };
     }
 
-    var requiereAnexo = TIPOS_PROCESO[data.tipoProceso];
+    // Validar que todos los tipos existan
+    for (var i = 0; i < tiposArray.length; i++) {
+      if (!TIPOS_ESTUDIO.hasOwnProperty(tiposArray[i])) {
+        console.log('[submitFormData] Tipo de estudio no reconocido: ' + tiposArray[i]);
+        return { success: false, error: 'Tipo de estudio no reconocido: ' + tiposArray[i] };
+      }
+    }
+
+    var requiereAnexo = tiposArray.some(function(tipo) { return TIPOS_ESTUDIO[tipo]; });
     var filesCount = parseInt(data.filesCount) || 0;
 
     if (requiereAnexo && filesCount === 0) {
       console.log('[submitFormData] Validación fallida — requiere anexo pero filesCount=0');
-      return { success: false, error: 'Este tipo de proceso requiere al menos un documento anexo.' };
+      return { success: false, error: 'Al menos un tipo de estudio seleccionado requiere documento anexo.' };
     }
 
     var sheet    = _getOrCreateSheet();
@@ -292,7 +303,7 @@ function submitFormData(data) {
       nextId,
       solicitudStr,
       (data.poliza || '').toString().trim(),
-      data.tipoProceso,
+      tipoEstudio,
       filesCount,
       arrivalDate,
       folderUrl,
@@ -309,7 +320,7 @@ function submitFormData(data) {
       nextId: nextId,
       solicitud: solicitudStr,
       poliza: (data.poliza || '').toString().trim(),
-      tipoProceso: data.tipoProceso,
+      tipoEstudio: tipoEstudio,
       filesCount: filesCount,
       arrivalDate: arrivalDate ? arrivalDate.toISOString() : null,
       folderUrl: folderUrl,
