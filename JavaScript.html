@@ -444,52 +444,43 @@ function formatFileSize(b) {
   return (b / 1048576).toFixed(1) + ' MB';
 }
 
-// ─── VALIDACIÓN ────────────────────────────────────────────────
-function showFieldError(id, msg) {
-  var el = document.getElementById(id);
-  if (!el) return;
-  if (msg) el.textContent = msg;
-  el.classList.remove('hidden');
-  var input = document.getElementById(id.replace('err-', ''));
-  if (input) { input.classList.remove('border-slate-200'); input.classList.add('border-brand-red', 'ring-2', 'ring-red-100'); }
-}
-
-function clearError(id) {
-  var el = document.getElementById(id);
-  if (el) el.classList.add('hidden');
-  var input = document.getElementById(id.replace('err-', ''));
-  if (input) { input.classList.add('border-slate-200'); input.classList.remove('border-brand-red', 'ring-2', 'ring-red-100'); }
-}
-
-function validate() {
-  console.log('[validate] Validando formulario...');
-  var ok = true;
-
-  var sol = document.getElementById('solicitud').value.trim();
-  var pol = document.getElementById('poliza').value.trim();
-  var tipoSolicitud = document.getElementById('tipo-solicitud').value;
-  
-  var tiposSeleccionados = getSelectedTipos(); 
-  
-  var fecha = document.getElementById('fecha-hora').value;
-
-  ['err-solicitud','err-poliza','err-tipo','err-fecha','err-file','err-tipo-solicitud'].forEach(clearError);
-
-  if (!sol)   { showFieldError('err-solicitud'); ok = false; }
-  if (!pol)   { showFieldError('err-poliza');    ok = false; }
-  if (!tipoSolicitud) { showFieldError('err-tipo-solicitud'); ok = false; }
-  if (tiposSeleccionados.length === 0) { showFieldError('err-tipo'); ok = false; }
-  if (!fecha) { showFieldError('err-fecha');     ok = false; }
-
-  var requiereAnexo = tiposSeleccionados.some(function(t) { return TIPOS_CON_ANEXO[t]; });
-  if (requiereAnexo && selectedFiles.length === 0) {
-    showFieldError('err-file', 'Este proceso requiere al menos un documento adjunto.');
-    ok = false;
+  // ─── VALIDACIÓN ────────────────────────────────────────────────
+  function showFieldError(id, msg) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (msg) el.textContent = msg;
+    el.classList.remove('hidden');
+    var input = document.getElementById(id.replace('err-', ''));
+    if (input) { input.classList.remove('border-slate-200'); input.classList.add('border-brand-red', 'ring-2', 'ring-red-100'); }
   }
+  function clearError(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+    var input = document.getElementById(id.replace('err-', ''));
+    if (input) { input.classList.add('border-slate-200'); input.classList.remove('border-brand-red', 'ring-2', 'ring-red-100'); }
+  }
+  function validate() {
+    console.log('[validate] Validando formulario...');
+    var ok = true;
+    var sol = document.getElementById('solicitud').value.trim();
+    var pol = document.getElementById('poliza').value.trim();
+    var tipos = getSelectedTipos();
+    var fecha = document.getElementById('fecha-hora').value;
 
-  console.log('[validate] Resultado:', ok ? 'VÁLIDO' : 'INVÁLIDO');
-  return ok;
-}
+    ['err-solicitud','err-poliza','err-tipo','err-fecha','err-file'].forEach(clearError);
+    if (!sol)   { showFieldError('err-solicitud'); ok = false; }
+    if (!pol)   { showFieldError('err-poliza');    ok = false; }
+    if (tipos.length === 0) { showFieldError('err-tipo'); ok = false; }
+    if (!fecha) { showFieldError('err-fecha');     ok = false; }
+
+    var anyRequiresAnexo = tipos.some(function(tipo) { return TIPOS_CON_ANEXO[tipo]; });
+    if (anyRequiresAnexo && selectedFiles.length === 0) {
+      showFieldError('err-file', 'Al menos un tipo de estudio seleccionado requiere documento adjunto.');
+      ok = false;
+    }
+    console.log('[validate] Resultado:', ok ? 'VÁLIDO' : 'INVÁLIDO', '| campos:', JSON.stringify({ sol: sol, pol: pol, tipos: tipos, fecha: fecha, archivos: selectedFiles.length }));
+    return ok;
+  }
 
 // ─── UPLOAD DE ARCHIVOS ──────────────────────────────────────
 function readFileAsBase64(file) {
@@ -571,13 +562,13 @@ async function handleSubmit(e) {
   setLoading(true);
   hideAlert();
 
-  var solicitud   = document.getElementById('solicitud').value.trim();
-  var poliza      = document.getElementById('poliza').value.trim();
-  
-  // CORRECCIÓN 3: Extraer los valores de los checkboxes como un string separado por comas
-  var tipoEstudio = getSelectedTipos().join(', '); 
-  
-  var fechaHora   = document.getElementById('fecha-hora').value;
+    var solicitud    = document.getElementById('solicitud').value.trim();
+    var poliza       = document.getElementById('poliza').value.trim();
+    var tiposEstudio = getSelectedTipos();
+    var tipoEstudio  = tiposEstudio.join(', ');
+    var fechaHora    = document.getElementById('fecha-hora').value;
+
+    console.log('[handleSubmit] Datos del formulario:', JSON.stringify({ solicitud: solicitud, poliza: poliza, tipoEstudio: tipoEstudio, fechaHora: fechaHora, archivos: selectedFiles.length }));
 
   try {
     var filesCount = selectedFiles.length;
@@ -598,15 +589,17 @@ async function handleSubmit(e) {
       updateUploadBar(100);
     }
 
-    // 2. Registrar en el Sheet
-    var payload = {
-      solicitud:      solicitud,
-      poliza:         poliza,
-      tipoEstudio:    tipoEstudio,
-      tipoSolicitud:  document.getElementById('tipo-solicitud').value.trim(),
-      fechaHora:      fechaHora,
-      filesCount:     filesCount,
-    };
+      // 2. Registrar en el Sheet
+      var payload = {
+        solicitud:   solicitud,
+        poliza:      poliza,
+        tipoEstudio: tipoEstudio,
+        fechaHora:   fechaHora,
+        filesCount:  filesCount,
+      };
+
+      // LOG CRÍTICO: Datos antes de llamar a submitFormData
+      console.log('[handleSubmit] Antes de google.script.run.submitFormData —', JSON.stringify(payload));
 
     var result = await new Promise(function(resolve, reject) {
       google.script.run
@@ -695,19 +688,19 @@ function showSuccess(result, payload) {
     ? '<a href="' + result.folderUrl + '" target="_blank" class="text-blue-600 underline hover:text-blue-800">Abrir carpeta</a>'
     : '—';
 
-  DOM.successMeta.innerHTML = [
-    row('ID de Registro',       '#' + result.id),
-    row('N.º de Solicitud', payload.solicitud),
-    row('N.º de Póliza', payload.poliza),
-    row('Tipo de Proceso',      payload.tipoEstudio),
-    row('Archivos adjuntos',    result.filesCount + ' archivo(s)'),
-    row('Carpeta de Solicitud', folderLink),
-    row('Fecha llegada correo', formatDT(payload.fechaHora)),
-    row('Registrado por',       result.userName),
-    row('Email',                result.userEmail),
-    row('Fecha de registro',    result.ts),
-  ].join('');
-}
+    DOM.successMeta.innerHTML = [
+      row('ID de Registro',       '#' + result.id),
+      row('N.\u00BA de Solicitud', payload.solicitud),
+      row('N.\u00BA de P\u00F3liza', payload.poliza),
+      row('Tipo de Estudio',      payload.tipoEstudio),
+      row('Archivos adjuntos',    result.filesCount + ' archivo(s)'),
+      row('Carpeta de Solicitud', folderLink),
+      row('Fecha llegada correo', formatDT(payload.fechaHora)),
+      row('Registrado por',       result.userName),
+      row('Email',                result.userEmail),
+      row('Fecha de registro',    result.ts),
+    ].join('');
+  }
 
 function row(k, v) {
   return '<div class="flex justify-between py-2 border-b border-slate-100 last:border-0">' +
