@@ -3,598 +3,754 @@
 
 const App = (function() {
 
-  // ─── CONFIGURACIÓN ─────────────────────────────────────────────
-  const MAX_FILE_MB = 50;
+// ─── CONFIGURACIÓN ─────────────────────────────────────────────
+const MAX_FILE_MB = 50;
 
-  const TIPOS_CON_ANEXO = {
-    'Aceptación LMI':                           true,
-    'Actas':                                    true,
-    'Actualizar Resultado':                     true,
-    'Ampliación Canon':                         true,
-    'Anular Estudio':                           true,
-    'AVS Cerrada Por 85':                       false,
-    'AVS Re Asignado':                          false,
-    'AVS Traslado Cerrada Por 86':              false,
-    'Biometría Fallida':                        false,
-    'Cámara De Comercio':                       true,
-    'Cambio De Inmueble':                       true,
-    'Cambio De Roles':                          true,
-    'Confirmación Destino':                     true,
-    'Desistimiento Y Continuidad De Solicitud': true,
-    'Deudor UAR':                               true,
-    'Disminución Canon':                        true,
-    'Extractos Y/O DR':                         true,
-    'Opción 1+1':                               true,
-    'Opción CDT':                               true,
-    'Nueva UAR':                                true,
-    'Paz Y Salvo':                              true,
-    'Reactivar Deudor':                         true,
-    'Reconsideración':                          true,
-    'Retiro De Deudor':                         true,
-    'Retoma Pendiente':                         true,
-    'Traslado':                                 true,
-    'Unificación De Solicitudes':               true,
-  };
+const TIPOS_CON_ANEXO = {
+  'Aceptación LMI':                           true,
+  'Actas':                                    true,
+  'Actualizar Resultado':                     true,
+  'Ampliación Canon':                         true,
+  'Anular Estudio':                           true,
+  'AVS Cerrada Por 85':                       false,
+  'AVS Re Asignado':                          false,
+  'AVS Traslado Cerrada Por 86':              false,
+  'Biometría Fallida':                        false,
+  'Cámara De Comercio':                       true,
+  'Cambio De Inmueble':                       true,
+  'Cambio De Roles':                          true,
+  'Confirmación Destino':                     true,
+  'Desistimiento Y Continuidad De Solicitud': true,
+  'Deudor UAR':                               true,
+  'Disminución Canon':                        true,
+  'Extractos Y/O DR':                         true,
+  'Opción 1+1':                               true,
+  'Opción CDT':                               true,
+  'Nueva UAR':                                true,
+  'Paz Y Salvo':                              true,
+  'Reactivar Deudor':                         true,
+  'Reconsideración':                          true,
+  'Retiro De Deudor':                         true,
+  'Retoma Pendiente':                         true,
+  'Traslado':                                 true,
+  'Unificación De Solicitudes':               true,
+};
 
-  // ─── ESTADO ────────────────────────────────────────────────────
-  let selectedFiles = [];
-  let selectedTipos = [];
-  let userData = { email: '', name: '', initials: '' };
+// ─── ESTADO ────────────────────────────────────────────────────
+let selectedFiles = [];
+let selectedTipos = [];
+let userData = { email: '', name: '', initials: '' };
 
-  // ─── CACHE DOM ─────────────────────────────────────────────────
-  const DOM = {};
+// ─── CACHE DOM ─────────────────────────────────────────────────
+const DOM = {};
+const DRAFT_KEY = 'recepcion_reestudios_draft';
+let draftTimer = null;
 
-  function cacheDom() {
-    DOM.form              = document.getElementById('main-form');
-    DOM.formSection       = document.getElementById('form-section');
-    DOM.successScreen     = document.getElementById('success-screen');
-    DOM.successTitle      = document.getElementById('success-title');
-    DOM.successSubtitle   = document.getElementById('success-subtitle');
-    DOM.successMeta       = document.getElementById('success-meta');
-    DOM.tipoEstudioContainer = document.getElementById('tipo-estudio-container');
-    DOM.hintSi            = document.getElementById('hint-si');
-    DOM.hintNo            = document.getElementById('hint-no');
-    DOM.anexoSection      = document.getElementById('anexo-section');
-    DOM.anexoRequired     = document.getElementById('anexo-required');
-    DOM.dropZone          = document.getElementById('drop-zone');
-    DOM.fileInput         = document.getElementById('file-input');
-    DOM.fileListContainer = document.getElementById('file-list-container');
-    DOM.btnSubmit         = document.getElementById('btn-submit');
-    DOM.btnText           = document.getElementById('btn-text');
-    DOM.spinner           = document.getElementById('spinner');
-    DOM.alertError        = document.getElementById('alert-error');
-    DOM.alertMsg          = document.getElementById('alert-error-msg');
-    DOM.userGreeting      = document.getElementById('user-greeting');
-    DOM.userAvatar        = document.getElementById('user-avatar');
-    DOM.uploadSection     = document.getElementById('upload-progress-section');
-    DOM.uploadLabel       = document.getElementById('upload-progress-label');
-    DOM.uploadPct         = document.getElementById('upload-progress-pct');
-    DOM.uploadBar         = document.getElementById('upload-progress-bar');
-    DOM.uploadDetail      = document.getElementById('upload-progress-detail');
-    DOM.uploadModal       = document.getElementById('upload-modal');
-    DOM.modalTitle        = document.getElementById('modal-title');
-    DOM.modalMessage      = document.getElementById('modal-message');
-    DOM.modalLabel        = document.getElementById('modal-progress-label');
-    DOM.modalPct          = document.getElementById('modal-progress-pct');
-    DOM.modalBar          = document.getElementById('modal-progress-bar');
-  }
+function cacheDom() {
+  DOM.form              = document.getElementById('main-form');
+  DOM.formSection       = document.getElementById('form-section');
+  DOM.successScreen     = document.getElementById('success-screen');
+  DOM.successTitle      = document.getElementById('success-title');
+  DOM.successSubtitle   = document.getElementById('success-subtitle');
+  DOM.successMeta       = document.getElementById('success-meta');
+  DOM.tipoEstudioContainer = document.getElementById('tipo-estudio-container');
+  DOM.tipoSearch        = document.getElementById('tipo-estudio-search');
+  DOM.tipoSearchClear   = document.getElementById('tipo-estudio-search-clear');
+  DOM.tipoSearchCount   = document.getElementById('tipo-search-count');
+  DOM.hintSi            = document.getElementById('hint-si');
+  DOM.hintNo            = document.getElementById('hint-no');
+  DOM.anexoSection      = document.getElementById('anexo-section');
+  DOM.anexoRequired     = document.getElementById('anexo-required');
+  DOM.dropZone          = document.getElementById('drop-zone');
+  DOM.fileInput         = document.getElementById('file-input');
+  DOM.fileListContainer = document.getElementById('file-list-container');
+  DOM.btnSubmit         = document.getElementById('btn-submit');
+  DOM.btnText           = document.getElementById('btn-text');
+  DOM.spinner           = document.getElementById('spinner');
+  DOM.alertError        = document.getElementById('alert-error');
+  DOM.alertMsg          = document.getElementById('alert-error-msg');
+  DOM.userGreeting      = document.getElementById('user-greeting');
+  DOM.userAvatar        = document.getElementById('user-avatar');
+  DOM.uploadSection     = document.getElementById('upload-progress-section');
+  DOM.uploadLabel       = document.getElementById('upload-progress-label');
+  DOM.uploadPct         = document.getElementById('upload-progress-pct');
+  DOM.uploadBar         = document.getElementById('upload-progress-bar');
+  DOM.uploadDetail      = document.getElementById('upload-progress-detail');
+  DOM.uploadModal       = document.getElementById('upload-modal');
+  DOM.modalTitle        = document.getElementById('modal-title');
+  DOM.modalMessage      = document.getElementById('modal-message');
+  DOM.modalLabel        = document.getElementById('modal-progress-label');
+  DOM.modalPct          = document.getElementById('modal-progress-pct');
+  DOM.modalBar          = document.getElementById('modal-progress-bar');
+}
 
-  // ─── INICIALIZACIÓN ────────────────────────────────────────────
-  function init() {
-    console.log('[App.init] Inicializando aplicación');
-    cacheDom();
-    populateCheckboxes();
-    bindEvents();
-    loadUser();
-  }
+// ─── INICIALIZACIÓN ────────────────────────────────────────────
+function init() {
+  console.log('[App.init] Inicializando aplicación');
+  cacheDom();
+  populateCheckboxes();
+  bindEvents();
+  bindSearchEvents();
+  loadUser();
+  restoreDraft();
+}
 
-  function populateCheckboxes() {
-    console.log('[populateCheckboxes] Poblando checkboxes con tipos de estudio');
-    var container = DOM.tipoEstudioContainer;
-    Object.keys(TIPOS_CON_ANEXO).forEach(function(tipo) {
-      var label = document.createElement('label');
-      label.className = 'flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-slate-100 cursor-pointer transition-colors duration-150';
-      var checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.value = tipo;
-      checkbox.name = 'tipo-estudio';
-      checkbox.className = 'w-4 h-4 rounded border-slate-300 text-brand-red focus:ring-brand-red/20 cursor-pointer shrink-0';
-      var span = document.createElement('span');
-      span.className = 'text-sm text-slate-700 select-none';
-      span.textContent = tipo;
-      label.appendChild(checkbox);
-      label.appendChild(span);
-      container.appendChild(label);
-      checkbox.addEventListener('change', handleTipoChange);
-    });
-  }
+function populateCheckboxes() {
+  console.log('[populateCheckboxes] Poblando checkboxes con tipos de estudio');
+  var container = DOM.tipoEstudioContainer;
 
-  function loadUser() {
-    console.log('[loadUser] Solicitando datos del usuario al backend');
-    google.script.run
-      .withSuccessHandler(function(data) {
-        console.log('[loadUser] Datos recibidos:', JSON.stringify(data));
-        userData = data || { email: 'Usuario', name: 'Usuario', initials: 'U' };
-        DOM.userGreeting.textContent = 'Hola, ' + userData.name;
-        DOM.userAvatar.textContent = userData.initials;
-      })
-      .withFailureHandler(function(err) {
-        console.error('[loadUser] ERROR al obtener datos del usuario:', err);
-        DOM.userGreeting.textContent = 'Usuario';
-        DOM.userAvatar.textContent = 'U';
-      })
-      .getUserData();
-  }
+  Object.keys(TIPOS_CON_ANEXO).forEach(function(tipo) {
+    var label = document.createElement('label');
+    label.className = 'flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-slate-100 cursor-pointer transition-colors duration-150';
 
-  // ─── EVENTOS ───────────────────────────────────────────────────
-  function bindEvents() {
-    DOM.dropZone.addEventListener('dragover', handleDragOver);
-    DOM.dropZone.addEventListener('dragleave', handleDragLeave);
-    DOM.dropZone.addEventListener('drop', handleDrop);
-    DOM.fileInput.addEventListener('change', handleFileSelect);
-    DOM.form.addEventListener('submit', handleSubmit);
-    document.addEventListener('paste', handlePaste);
+    var checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = tipo;
+    checkbox.name = 'tipo-estudio';
+    checkbox.className = 'w-4 h-4 rounded border-slate-300 text-brand-red focus:ring-brand-red/20 cursor-pointer shrink-0';
 
-    DOM.dropZone.addEventListener('focus', function() {
-      var indicator = document.getElementById('paste-indicator');
-      if (indicator && selectedFiles.length === 0) {
-        indicator.classList.remove('hidden');
-        indicator.classList.add('flex');
-      }
-    });
-    DOM.dropZone.addEventListener('blur', function() {
-      var indicator = document.getElementById('paste-indicator');
-      if (indicator) {
-        indicator.classList.add('hidden');
-        indicator.classList.remove('flex');
-      }
-    });
-  }
+    var span = document.createElement('span');
+    span.className = 'text-sm text-slate-700 select-none';
+    span.textContent = tipo;
 
-  function getSelectedTipos() {
-    var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]:checked');
-    return Array.from(checkboxes).map(function(cb) { return cb.value; });
-  }
+    label.appendChild(checkbox);
+    label.appendChild(span);
+    container.appendChild(label);
 
-  function handleTipoChange() {
-    selectedTipos = getSelectedTipos();
-    console.log('[handleTipoChange] Tipos seleccionados:', JSON.stringify(selectedTipos));
-    DOM.hintSi.classList.add('hidden');
-    DOM.hintSi.classList.remove('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
-    DOM.hintNo.classList.add('hidden');
-    DOM.hintNo.classList.remove('bg-amber-50', 'border-amber-200', 'text-amber-700', 'flex');
+    checkbox.addEventListener('change', handleTipoChange);
+  });
+}
 
-    if (selectedTipos.length === 0) { DOM.anexoSection.classList.add('hidden'); return; }
+function loadUser() {
+  console.log('[loadUser] Solicitando datos del usuario al backend');
+  google.script.run
+    .withSuccessHandler(function(data) {
+      console.log('[loadUser] Datos recibidos:', JSON.stringify(data));
+      userData = data || { email: 'Usuario', name: 'Usuario', initials: 'U' };
+      DOM.userGreeting.textContent = 'Hola, ' + userData.name;
+      DOM.userAvatar.textContent = userData.initials;
+    })
+    .withFailureHandler(function(err) {
+      console.error('[loadUser] ERROR al obtener datos del usuario:', err);
+      DOM.userGreeting.textContent = 'Usuario';
+      DOM.userAvatar.textContent = 'U';
+    })
+    .getUserData();
+}
 
-    DOM.anexoSection.classList.remove('hidden');
-    var anyRequiresAnexo = selectedTipos.some(function(tipo) { return TIPOS_CON_ANEXO[tipo]; });
+// ─── EVENTOS ───────────────────────────────────────────────────
+function bindEvents() {
+  DOM.dropZone.addEventListener('dragover', handleDragOver);
+  DOM.dropZone.addEventListener('dragleave', handleDragLeave);
+  DOM.dropZone.addEventListener('drop', handleDrop);
+  DOM.fileInput.addEventListener('change', handleFileSelect);
+  DOM.form.addEventListener('submit', handleSubmit);
+  document.addEventListener('paste', handlePaste);
 
-    if (anyRequiresAnexo) {
-      DOM.hintSi.classList.remove('hidden');
-      DOM.hintSi.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
-      DOM.anexoRequired.style.display = 'inline';
-    } else {
-      DOM.hintNo.classList.remove('hidden');
-      DOM.hintNo.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-700', 'flex');
-      DOM.anexoRequired.style.display = 'none';
+  // Autoguardado: escuchar cambios en campos del formulario
+  ['solicitud', 'poliza', 'fecha-hora', 'tipo-solicitud'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', scheduleDraftSave);
+      el.addEventListener('change', scheduleDraftSave);
     }
+  });
+
+  DOM.dropZone.addEventListener('focus', function() {
+    var indicator = document.getElementById('paste-indicator');
+    if (indicator && selectedFiles.length === 0) {
+      indicator.classList.remove('hidden');
+      indicator.classList.add('flex');
+    }
+  });
+
+  DOM.dropZone.addEventListener('blur', function() {
+    var indicator = document.getElementById('paste-indicator');
+    if (indicator) {
+      indicator.classList.add('hidden');
+      indicator.classList.remove('flex');
+    }
+  });
+}
+
+function getSelectedTipos() {
+  var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]:checked');
+  return Array.from(checkboxes).map(function(cb) { return cb.value; });
+}
+
+// ─── BÚSQUEDA DE TIPOS DE ESTUDIO ─────────────────────────────
+function bindSearchEvents() {
+  DOM.tipoSearch.addEventListener('input', handleTipoSearch);
+  DOM.tipoSearchClear.addEventListener('click', clearTipoSearch);
+}
+
+function handleTipoSearch() {
+  var query = DOM.tipoSearch.value.trim().toLowerCase();
+  var labels = DOM.tipoEstudioContainer.querySelectorAll('label');
+  var visibleCount = 0;
+  var totalCount = labels.length;
+
+  // Mostrar/ocultar botón de limpiar
+  DOM.tipoSearchClear.classList.toggle('hidden', query.length === 0);
+
+  labels.forEach(function(label) {
+    var text = label.querySelector('span').textContent.toLowerCase();
+    var matches = text.indexOf(query) !== -1;
+    label.style.display = matches ? '' : 'none';
+    if (matches) visibleCount++;
+  });
+
+  // Mostrar contador de resultados
+  if (query.length > 0) {
+    DOM.tipoSearchCount.textContent = visibleCount + ' de ' + totalCount + ' tipos encontrados';
+    DOM.tipoSearchCount.classList.remove('hidden');
+  } else {
+    DOM.tipoSearchCount.classList.add('hidden');
+  }
+}
+
+function clearTipoSearch() {
+  DOM.tipoSearch.value = '';
+  DOM.tipoSearchClear.classList.add('hidden');
+  DOM.tipoSearchCount.classList.add('hidden');
+  var labels = DOM.tipoEstudioContainer.querySelectorAll('label');
+  labels.forEach(function(label) { label.style.display = ''; });
+  DOM.tipoSearch.focus();
+}
+
+// ─── AUTOGUARDADO DE BORRADOR (localStorage) ──────────────────
+function scheduleDraftSave() {
+  if (draftTimer) clearTimeout(draftTimer);
+  draftTimer = setTimeout(saveDraft, 800);
+}
+
+function saveDraft() {
+  try {
+    var draft = {
+      solicitud:     document.getElementById('solicitud').value,
+      poliza:        document.getElementById('poliza').value,
+      tipoSolicitud: document.getElementById('tipo-solicitud').value,
+      tiposEstudio:  getSelectedTipos(),
+      fechaHora:     document.getElementById('fecha-hora').value,
+      savedAt:       new Date().toISOString(),
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch (e) {
+    // localStorage no disponible o lleno — ignorar silenciosamente
+  }
+}
+
+function restoreDraft() {
+  try {
+    var raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return;
+
+    var draft = JSON.parse(raw);
+    if (!draft || !draft.savedAt) return;
+
+    // Ignorar borradores de más de 24 horas
+    var savedTime = new Date(draft.savedAt).getTime();
+    if (Date.now() - savedTime > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(DRAFT_KEY);
+      return;
+    }
+
+    // Restaurar campos
+    if (draft.solicitud)     document.getElementById('solicitud').value = draft.solicitud;
+    if (draft.poliza)        document.getElementById('poliza').value = draft.poliza;
+    if (draft.tipoSolicitud) document.getElementById('tipo-solicitud').value = draft.tipoSolicitud;
+    if (draft.fechaHora)     document.getElementById('fecha-hora').value = draft.fechaHora;
+
+    // Restaurar checkboxes de tipos de estudio
+    if (draft.tiposEstudio && draft.tiposEstudio.length > 0) {
+      var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]');
+      checkboxes.forEach(function(cb) {
+        if (draft.tiposEstudio.indexOf(cb.value) !== -1) {
+          cb.checked = true;
+        }
+      });
+      handleTipoChange();
+    }
+
+    console.log('[restoreDraft] Borrador restaurado del', draft.savedAt);
+  } catch (e) {
+    // Error parsing o localStorage no disponible — ignorar
+  }
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* ignore */ }
+}
+
+function handleTipoChange() {
+  selectedTipos = getSelectedTipos();
+  console.log('[handleTipoChange] Tipos seleccionados:', JSON.stringify(selectedTipos));
+
+  DOM.hintSi.classList.add('hidden');
+  DOM.hintSi.classList.remove('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
+  DOM.hintNo.classList.add('hidden');
+  DOM.hintNo.classList.remove('bg-amber-50', 'border-amber-200', 'text-amber-700', 'flex');
+
+  if (selectedTipos.length === 0) { 
+    DOM.anexoSection.classList.add('hidden'); 
+    scheduleDraftSave();
+    return; 
   }
 
-  // ─── DRAG & DROP ───────────────────────────────────────────────
-  function handleDragOver(e) {
-    e.preventDefault();
-    DOM.dropZone.classList.add('border-brand-red/50', 'bg-red-50/40');
-  }
-  function handleDragLeave() {
-    DOM.dropZone.classList.remove('border-brand-red/50', 'bg-red-50/40');
-  }
-  function handleDrop(e) {
-    e.preventDefault();
-    DOM.dropZone.classList.remove('border-brand-red/50', 'bg-red-50/40');
-    console.log('[handleDrop] Archivos recibidos por drop:', e.dataTransfer.files.length);
-    for (var i = 0; i < e.dataTransfer.files.length; i++) addFile(e.dataTransfer.files[i]);
-  }
-  function handleFileSelect() {
-    console.log('[handleFileSelect] Archivos seleccionados:', DOM.fileInput.files.length);
-    for (var i = 0; i < DOM.fileInput.files.length; i++) addFile(DOM.fileInput.files[i]);
-    DOM.fileInput.value = '';
+  DOM.anexoSection.classList.remove('hidden');
+  var anyRequiresAnexo = selectedTipos.some(function(tipo) { return TIPOS_CON_ANEXO[tipo]; });
+
+  if (anyRequiresAnexo) {
+    DOM.hintSi.classList.remove('hidden');
+    DOM.hintSi.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
+    DOM.anexoRequired.style.display = 'inline';
+  } else {
+    DOM.hintNo.classList.remove('hidden');
+    DOM.hintNo.classList.add('bg-amber-50', 'border-amber-200', 'text-amber-700', 'flex');
+    DOM.anexoRequired.style.display = 'none';
   }
 
-  // ─── PASTE ─────────────────────────────────────────────────────
-  function handlePaste(e) {
-    if (DOM.anexoSection.classList.contains('hidden')) return;
-    var items = (e.clipboardData || e.originalEvent.clipboardData).items;
-    if (!items) return;
-    for (var i = 0; i < items.length; i++) {
-      var item = items[i];
-      if (item.type.indexOf('image') !== -1) {
-        e.preventDefault();
-        var blob = item.getAsFile();
-        if (!blob) continue;
-        var ext = item.type.split('/')[1] || 'png';
-        var ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        var pastedFile = new File([blob], 'captura-' + ts + '.' + ext, { type: item.type });
-        console.log('[handlePaste] Imagen pegada:', pastedFile.name, '| size:', pastedFile.size);
-        addFile(pastedFile);
+  scheduleDraftSave();
+}
+
+// ─── DRAG & DROP ───────────────────────────────────────────────
+function handleDragOver(e) {
+  e.preventDefault();
+  DOM.dropZone.classList.add('border-brand-red/50', 'bg-red-50/40');
+}
+
+function handleDragLeave() {
+  DOM.dropZone.classList.remove('border-brand-red/50', 'bg-red-50/40');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  DOM.dropZone.classList.remove('border-brand-red/50', 'bg-red-50/40');
+  console.log('[handleDrop] Archivos recibidos por drop:', e.dataTransfer.files.length);
+  for (var i = 0; i < e.dataTransfer.files.length; i++) addFile(e.dataTransfer.files[i]);
+}
+
+function handleFileSelect() {
+  console.log('[handleFileSelect] Archivos seleccionados:', DOM.fileInput.files.length);
+  for (var i = 0; i < DOM.fileInput.files.length; i++) addFile(DOM.fileInput.files[i]);
+  DOM.fileInput.value = '';
+}
+
+// ─── PASTE ─────────────────────────────────────────────────────
+function handlePaste(e) {
+  if (DOM.anexoSection.classList.contains('hidden')) return;
+  var items = (e.clipboardData || e.originalEvent.clipboardData).items;
+  if (!items) return;
+
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    if (item.type.indexOf('image') !== -1) {
+      e.preventDefault();
+      var blob = item.getAsFile();
+      if (!blob) continue;
+      
+      var ext = item.type.split('/')[1] || 'png';
+      var ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      var pastedFile = new File([blob], 'captura-' + ts + '.' + ext, { type: item.type });
+      
+      console.log('[handlePaste] Imagen pegada:', pastedFile.name, '| size:', pastedFile.size);
+      addFile(pastedFile);
+      showPasteSuccess();
+      return;
+    }
+
+    if (item.kind === 'file') {
+      e.preventDefault();
+      var f = item.getAsFile();
+      if (f) {
+        console.log('[handlePaste] Archivo pegado:', f.name, '| size:', f.size);
+        addFile(f);
         showPasteSuccess();
         return;
       }
-      if (item.kind === 'file') {
-        e.preventDefault();
-        var f = item.getAsFile();
-        if (f) {
-          console.log('[handlePaste] Archivo pegado:', f.name, '| size:', f.size);
-          addFile(f);
-          showPasteSuccess();
+    }
+  }
+}
+
+function showPasteSuccess() {
+  DOM.dropZone.classList.add('border-emerald-400', 'bg-emerald-50/50');
+  setTimeout(function() { DOM.dropZone.classList.remove('border-emerald-400', 'bg-emerald-50/50'); }, 800);
+  var ind = document.getElementById('paste-indicator');
+  if (ind) { ind.classList.add('hidden'); ind.classList.remove('flex'); }
+}
+
+// ─── MANEJO DE ARCHIVOS ────────────────────────────────────────
+function addFile(file) {
+  console.log('[addFile] Agregando archivo:', file.name, '| type:', file.type, '| size:', file.size);
+  if (file.size > MAX_FILE_MB * 1024 * 1024) {
+    console.error('[addFile] Archivo excede límite — nombre:', file.name, '| size:', file.size, '| maxBytes:', MAX_FILE_MB * 1024 * 1024);
+    showFieldError('err-file', '"' + file.name + '" supera ' + MAX_FILE_MB + ' MB.');
+    return;
+  }
+  selectedFiles.push(file);
+  clearError('err-file');
+  renderFileList();
+}
+
+function removeFile(index) {
+  console.log('[removeFile] Removiendo archivo en índice:', index, '| nombre:', selectedFiles[index] ? selectedFiles[index].name : 'N/A');
+  selectedFiles.splice(index, 1);
+  renderFileList();
+}
+
+function clearFiles() {
+  console.log('[clearFiles] Limpiando todos los archivos. Total previo:', selectedFiles.length);
+  selectedFiles = [];
+  DOM.fileInput.value = '';
+  renderFileList();
+}
+
+function renderFileList() {
+  var c = DOM.fileListContainer;
+  c.innerHTML = '';
+  if (selectedFiles.length === 0) return;
+
+  selectedFiles.forEach(function(file, idx) {
+    var div = document.createElement('div');
+    div.className = 'flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg animate-fade-in-up';
+    div.innerHTML =
+      '<div class="w-9 h-9 bg-emerald-500 rounded-lg flex items-center justify-center shrink-0">' +
+        '<svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
+      '</div>' +
+      '<div class="flex-1 min-w-0">' +
+        '<p class="text-sm font-semibold text-slate-800 truncate">' + escapeHtml(file.name) + '</p>' +
+        '<p class="text-[11px] text-emerald-600 font-medium">' + formatFileSize(file.size) + '</p>' +
+      '</div>' +
+      '<button type="button" data-idx="' + idx + '" class="rm-btn text-slate-400 hover:text-brand-red hover:bg-red-50 rounded-md p-1 transition-colors" title="Quitar">' +
+        '<svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>' +
+      '</button>';
+    c.appendChild(div);
+  });
+
+  c.querySelectorAll('.rm-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() { removeFile(parseInt(this.getAttribute('data-idx'))); });
+  });
+}
+
+function escapeHtml(s) { 
+  var d = document.createElement('div'); 
+  d.appendChild(document.createTextNode(s)); 
+  return d.innerHTML; 
+}
+
+function formatFileSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+
+// ─── VALIDACIÓN ────────────────────────────────────────────────
+function showFieldError(id, msg) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  if (msg) el.textContent = msg;
+  el.classList.remove('hidden');
+  var input = document.getElementById(id.replace('err-', ''));
+  if (input) { input.classList.remove('border-slate-200'); input.classList.add('border-brand-red', 'ring-2', 'ring-red-100'); }
+}
+
+function clearError(id) {
+  var el = document.getElementById(id);
+  if (el) el.classList.add('hidden');
+  var input = document.getElementById(id.replace('err-', ''));
+  if (input) { input.classList.add('border-slate-200'); input.classList.remove('border-brand-red', 'ring-2', 'ring-red-100'); }
+}
+
+function validate() {
+  console.log('[validate] Validando formulario...');
+  var ok = true;
+
+  var sol = document.getElementById('solicitud').value.trim();
+  var pol = document.getElementById('poliza').value.trim();
+  var tipoSolicitud = document.getElementById('tipo-solicitud').value;
+  
+  var tiposSeleccionados = getSelectedTipos(); 
+  
+  var fecha = document.getElementById('fecha-hora').value;
+
+  ['err-solicitud','err-poliza','err-tipo','err-fecha','err-file','err-tipo-solicitud'].forEach(clearError);
+
+  if (!sol)   { showFieldError('err-solicitud'); ok = false; }
+  if (!pol)   { showFieldError('err-poliza');    ok = false; }
+  if (!tipoSolicitud) { showFieldError('err-tipo-solicitud'); ok = false; }
+  if (tiposSeleccionados.length === 0) { showFieldError('err-tipo'); ok = false; }
+  if (!fecha) { showFieldError('err-fecha');     ok = false; }
+
+  var requiereAnexo = tiposSeleccionados.some(function(t) { return TIPOS_CON_ANEXO[t]; });
+  if (requiereAnexo && selectedFiles.length === 0) {
+    showFieldError('err-file', 'Este proceso requiere al menos un documento adjunto.');
+    ok = false;
+  }
+
+  console.log('[validate] Resultado:', ok ? 'VÁLIDO' : 'INVÁLIDO');
+  return ok;
+}
+
+// ─── UPLOAD DE ARCHIVOS ──────────────────────────────────────
+function readFileAsBase64(file) {
+  console.log('[readFileAsBase64] Leyendo archivo:', file.name, '| size:', file.size);
+  return new Promise(function(resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var base64 = e.target.result.split(',')[1];
+      console.log('[readFileAsBase64] Lectura completada:', file.name, '| base64Length:', base64 ? base64.length : 0);
+      resolve(base64);
+    };
+    reader.onerror = function() {
+      console.error('[readFileAsBase64] ERROR leyendo archivo:', file.name);
+      reject(new Error('Error leyendo ' + file.name));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function uploadFile(file, solicitud, tipoEstudio, onProgress) {
+  console.log('[uploadFile] Iniciando upload — archivo:', file.name, '| solicitud:', solicitud, '| tipoEstudio:', tipoEstudio);
+  
+  return new Promise(function(resolve, reject) {
+    readFileAsBase64(file)
+      .then(function(base64Data) {
+        if (!base64Data) {
+          console.error('[uploadFile] Base64 vacío para archivo:', file.name);
+          reject(new Error("No se pudo obtener el Base64 del archivo."));
           return;
         }
-      }
-    }
-  }
 
-  function showPasteSuccess() {
-    DOM.dropZone.classList.add('border-emerald-400', 'bg-emerald-50/50');
-    setTimeout(function() { DOM.dropZone.classList.remove('border-emerald-400', 'bg-emerald-50/50'); }, 800);
-    var ind = document.getElementById('paste-indicator');
-    if (ind) { ind.classList.add('hidden'); ind.classList.remove('flex'); }
-  }
+        var uploadParams = {
+          base64:      base64Data,
+          fileName:    file.name,
+          fileType:    file.type || 'application/octet-stream',
+          solicitud:   solicitud,
+          tipoEstudio: tipoEstudio,
+        };
 
-  // ─── MANEJO DE ARCHIVOS ────────────────────────────────────────
-  function addFile(file) {
-    console.log('[addFile] Agregando archivo:', file.name, '| type:', file.type, '| size:', file.size);
-    if (file.size > MAX_FILE_MB * 1024 * 1024) {
-      console.error('[addFile] Archivo excede límite — nombre:', file.name, '| size:', file.size, '| maxBytes:', MAX_FILE_MB * 1024 * 1024);
-      showFieldError('err-file', '"' + file.name + '" supera ' + MAX_FILE_MB + ' MB.');
-      return;
-    }
-    selectedFiles.push(file);
-    clearError('err-file');
-    renderFileList();
-  }
+        console.log('[uploadFile] Antes de google.script.run.uploadSingleFile —', JSON.stringify({
+          fileName: uploadParams.fileName,
+          fileType: uploadParams.fileType,
+          solicitud: uploadParams.solicitud,
+          tipoEstudio: uploadParams.tipoEstudio,
+          base64Length: uploadParams.base64.length
+        }));
 
-  function removeFile(index) {
-    console.log('[removeFile] Removiendo archivo en índice:', index, '| nombre:', selectedFiles[index] ? selectedFiles[index].name : 'N/A');
-    selectedFiles.splice(index, 1);
-    renderFileList();
-  }
-
-  function clearFiles() {
-    console.log('[clearFiles] Limpiando todos los archivos. Total previo:', selectedFiles.length);
-    selectedFiles = [];
-    DOM.fileInput.value = '';
-    renderFileList();
-  }
-
-  function renderFileList() {
-    var c = DOM.fileListContainer;
-    c.innerHTML = '';
-    if (selectedFiles.length === 0) return;
-    selectedFiles.forEach(function(file, idx) {
-      var div = document.createElement('div');
-      div.className = 'flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg animate-fade-in-up';
-      div.innerHTML =
-        '<div class="w-9 h-9 bg-emerald-500 rounded-lg flex items-center justify-center shrink-0">' +
-          '<svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>' +
-        '</div>' +
-        '<div class="flex-1 min-w-0">' +
-          '<p class="text-sm font-semibold text-slate-800 truncate">' + escapeHtml(file.name) + '</p>' +
-          '<p class="text-[11px] text-emerald-600 font-medium">' + formatFileSize(file.size) + '</p>' +
-        '</div>' +
-        '<button type="button" data-idx="' + idx + '" class="rm-btn text-slate-400 hover:text-brand-red hover:bg-red-50 rounded-md p-1 transition-colors" title="Quitar">' +
-          '<svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>' +
-        '</button>';
-      c.appendChild(div);
-    });
-    c.querySelectorAll('.rm-btn').forEach(function(btn) {
-      btn.addEventListener('click', function() { removeFile(parseInt(this.getAttribute('data-idx'))); });
-    });
-  }
-
-  function escapeHtml(s) { var d = document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.innerHTML; }
-  function formatFileSize(b) {
-    if (b < 1024) return b + ' B';
-    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
-    return (b / 1048576).toFixed(1) + ' MB';
-  }
-
-  // ─── VALIDACIÓN ────────────────────────────────────────────────
-  function showFieldError(id, msg) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    if (msg) el.textContent = msg;
-    el.classList.remove('hidden');
-    var input = document.getElementById(id.replace('err-', ''));
-    if (input) { input.classList.remove('border-slate-200'); input.classList.add('border-brand-red', 'ring-2', 'ring-red-100'); }
-  }
-  function clearError(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.add('hidden');
-    var input = document.getElementById(id.replace('err-', ''));
-    if (input) { input.classList.add('border-slate-200'); input.classList.remove('border-brand-red', 'ring-2', 'ring-red-100'); }
-  }
-  function validate() {
-    console.log('[validate] Validando formulario...');
-    var ok = true;
-    var sol = document.getElementById('solicitud').value.trim();
-    var pol = document.getElementById('poliza').value.trim();
-    var tipos = getSelectedTipos();
-    var fecha = document.getElementById('fecha-hora').value;
-
-    ['err-solicitud','err-poliza','err-tipo','err-fecha','err-file'].forEach(clearError);
-    if (!sol)   { showFieldError('err-solicitud'); ok = false; }
-    if (!pol)   { showFieldError('err-poliza');    ok = false; }
-    if (tipos.length === 0) { showFieldError('err-tipo'); ok = false; }
-    if (!fecha) { showFieldError('err-fecha');     ok = false; }
-
-    var anyRequiresAnexo = tipos.some(function(tipo) { return TIPOS_CON_ANEXO[tipo]; });
-    if (anyRequiresAnexo && selectedFiles.length === 0) {
-      showFieldError('err-file', 'Al menos un tipo de estudio seleccionado requiere documento adjunto.');
-      ok = false;
-    }
-    console.log('[validate] Resultado:', ok ? 'VÁLIDO' : 'INVÁLIDO', '| campos:', JSON.stringify({ sol: sol, pol: pol, tipos: tipos, fecha: fecha, archivos: selectedFiles.length }));
-    return ok;
-  }
-
-  // ─── UPLOAD DE ARCHIVOS ──────────────────────────────────────
-
-  function readFileAsBase64(file) {
-    console.log('[readFileAsBase64] Leyendo archivo:', file.name, '| size:', file.size);
-    return new Promise(function(resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function(e) {
-        var base64 = e.target.result.split(',')[1];
-        console.log('[readFileAsBase64] Lectura completada:', file.name, '| base64Length:', base64 ? base64.length : 0);
-        resolve(base64);
-      };
-      reader.onerror = function() {
-        console.error('[readFileAsBase64] ERROR leyendo archivo:', file.name);
-        reject(new Error('Error leyendo ' + file.name));
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-
-  function uploadFile(file, solicitud, tipoEstudio, onProgress) {
-    console.log('[uploadFile] Iniciando upload — archivo:', file.name, '| solicitud:', solicitud, '| tipoEstudio:', tipoEstudio);
-    return new Promise(function(resolve, reject) {
-      // 1. Leemos el archivo a Base64 primero
-      readFileAsBase64(file)
-        .then(function(base64Data) {
-          
-          if (!base64Data) {
-            console.error('[uploadFile] Base64 vacío para archivo:', file.name);
-            reject(new Error("No se pudo obtener el Base64 del archivo."));
-            return;
-          }
-
-          // LOG CRÍTICO: Datos antes de llamar a uploadSingleFile en el backend
-          var uploadParams = {
-            base64:      base64Data,
-            fileName:    file.name,
-            fileType:    file.type || 'application/octet-stream',
-            solicitud:   solicitud,
-            tipoEstudio: tipoEstudio,
-          };
-          console.log('[uploadFile] Antes de google.script.run.uploadSingleFile —', JSON.stringify({
-            fileName: uploadParams.fileName,
-            fileType: uploadParams.fileType,
-            solicitud: uploadParams.solicitud,
-            tipoEstudio: uploadParams.tipoEstudio,
-            base64Length: uploadParams.base64.length
-          }));
-
-          // 2. Enviamos al servidor
-          google.script.run
-            .withSuccessHandler(function(res) {
-              console.log('[uploadFile] Respuesta del servidor para', file.name, ':', JSON.stringify(res));
-              if (res && res.success) {
-                if (onProgress) onProgress(1, 1);
-                resolve(res);
-              } else {
-                console.error('[uploadFile] Servidor retornó error para', file.name, ':', (res && res.error) || 'Error desconocido');
-                reject(new Error((res && res.error) || 'Error subiendo archivo'));
-              }
-            })
-            .withFailureHandler(function(err) {
-              console.error('[uploadFile] ERROR en google.script.run para', file.name, ':', err);
-              reject(err);
-            })
-            .uploadSingleFile(uploadParams);
-            
-        })
-        .catch(function(error) {
-          console.error('[uploadFile] ERROR en cadena de promesas — archivo:', file.name, '| message:', error.message, '| stack:', error.stack || 'N/A');
-          reject(error);
-        });
-    });
-  }
-
-  // ─── ENVÍO DEL FORMULARIO ──────────────────────────────────────
-  async function handleSubmit(e) {
-    e.preventDefault();
-    console.log('[handleSubmit] Formulario enviado — iniciando validación');
-    if (!validate()) return;
-
-    setLoading(true);
-    hideAlert();
-
-    var solicitud    = document.getElementById('solicitud').value.trim();
-    var poliza       = document.getElementById('poliza').value.trim();
-    var tiposEstudio = getSelectedTipos();
-    var tipoEstudio  = tiposEstudio.join(', ');
-    var fechaHora    = document.getElementById('fecha-hora').value;
-
-    console.log('[handleSubmit] Datos del formulario:', JSON.stringify({ solicitud: solicitud, poliza: poliza, tipoEstudio: tipoEstudio, fechaHora: fechaHora, archivos: selectedFiles.length }));
-
-    try {
-      var filesCount = selectedFiles.length;
-
-      // 1. Subir archivos (si hay)
-      if (filesCount > 0) {
-        console.log('[handleSubmit] Iniciando subida de', filesCount, 'archivo(s)');
-        showUploadProgress(true);
-
-        for (var i = 0; i < filesCount; i++) {
-          updateUploadLabel('Subiendo ' + (i + 1) + ' de ' + filesCount + ': ' + selectedFiles[i].name);
-          console.log('[handleSubmit] Subiendo archivo', (i + 1), 'de', filesCount, ':', selectedFiles[i].name);
-          await uploadFile(selectedFiles[i], solicitud, tipoEstudio, function() {
-            var pct = Math.round(((i + 1) / filesCount) * 100);
-            updateUploadBar(pct);
-          });
-        }
-        updateUploadLabel('Archivos subidos correctamente');
-        updateUploadBar(100);
-        console.log('[handleSubmit] Todos los archivos subidos exitosamente');
-      }
-
-      // 2. Registrar en el Sheet
-      var payload = {
-        solicitud:   solicitud,
-        poliza:      poliza,
-        tipoEstudio: tipoEstudio,
-        fechaHora:   fechaHora,
-        filesCount:  filesCount,
-      };
-
-      // LOG CRÍTICO: Datos antes de llamar a submitFormData
-      console.log('[handleSubmit] Antes de google.script.run.submitFormData —', JSON.stringify(payload));
-
-      var result = await new Promise(function(resolve, reject) {
         google.script.run
-          .withSuccessHandler(resolve)
-          .withFailureHandler(reject)
-          .submitFormData(payload);
+          .withSuccessHandler(function(res) {
+            console.log('[uploadFile] Respuesta del servidor para', file.name, ':', JSON.stringify(res));
+            if (res && res.success) {
+              if (onProgress) onProgress(1, 1);
+              resolve(res);
+            } else {
+              console.error('[uploadFile] Servidor retornó error para', file.name, ':', (res && res.error) || 'Error desconocido');
+              reject(new Error((res && res.error) || 'Error subiendo archivo'));
+            }
+          })
+          .withFailureHandler(function(err) {
+            console.error('[uploadFile] ERROR en google.script.run para', file.name, ':', err);
+            reject(err);
+          })
+          .uploadSingleFile(uploadParams);
+      })
+      .catch(function(error) {
+        console.error('[uploadFile] ERROR en cadena de promesas — archivo:', file.name, '| message:', error.message, '| stack:', error.stack || 'N/A');
+        reject(error);
       });
+  });
+}
 
-      console.log('[handleSubmit] Respuesta de submitFormData:', JSON.stringify(result));
+// ─── ENVÍO DEL FORMULARIO ──────────────────────────────────────
+async function handleSubmit(e) {
+  e.preventDefault();
+  console.log('[handleSubmit] Formulario enviado — iniciando validación');
 
-      setLoading(false);
-      showUploadProgress(false);
+  if (!validate()) return;
 
-      if (result.success) {
-        console.log('[handleSubmit] Registro exitoso — ID:', result.id);
-        showSuccess(result, payload);
-      } else {
-        console.error('[handleSubmit] Servidor retornó error:', result.error);
-        showAlert(result.error || 'Error desconocido.');
+  setLoading(true);
+  hideAlert();
+
+  var solicitud   = document.getElementById('solicitud').value.trim();
+  var poliza      = document.getElementById('poliza').value.trim();
+  
+  // CORRECCIÓN 3: Extraer los valores de los checkboxes como un string separado por comas
+  var tipoEstudio = getSelectedTipos().join(', '); 
+  
+  var fechaHora   = document.getElementById('fecha-hora').value;
+
+  try {
+    var filesCount = selectedFiles.length;
+
+    // 1. Subir archivos (si hay)
+    if (filesCount > 0) {
+      showUploadProgress(true);
+      for (var i = 0; i < filesCount; i++) {
+        updateUploadLabel('Subiendo ' + (i + 1) + ' de ' + filesCount + ': ' + selectedFiles[i].name);
+        
+        // CORRECCIÓN 4: Pasar tipoEstudio (que ahora sí existe) para evitar error
+        await uploadFile(selectedFiles[i], solicitud, tipoEstudio, function() {
+          var pct = Math.round(((i + 1) / filesCount) * 100);
+          updateUploadBar(pct);
+        });
       }
-
-    } catch (err) {
-      console.error('[handleSubmit] ERROR en try/catch — message:', err.message || err, '| stack:', err.stack || 'N/A');
-      setLoading(false);
-      showUploadProgress(false);
-      showAlert('Error: ' + (err.message || err));
+      updateUploadLabel('Archivos subidos correctamente');
+      updateUploadBar(100);
     }
-  }
 
-  // ─── UI HELPERS ────────────────────────────────────────────────
-  function setLoading(on) {
-    DOM.btnSubmit.disabled = on;
-    DOM.spinner.classList.toggle('hidden', !on);
-    DOM.spinner.classList.toggle('inline-block', on);
-    DOM.btnText.textContent = on ? 'Registrando...' : 'Registrar Solicitud';
-  }
-  function showAlert(msg) {
-    DOM.alertMsg.textContent = msg;
-    DOM.alertError.classList.remove('hidden');
-    DOM.alertError.classList.add('flex');
-  }
-  function hideAlert() {
-    DOM.alertError.classList.add('hidden');
-    DOM.alertError.classList.remove('flex');
-  }
-  function showUploadProgress(show) {
-    DOM.uploadSection.classList.toggle('hidden', !show);
-    if (show) {
-      // Mostrar modal con backdrop blur
-      DOM.uploadModal.classList.remove('hidden');
-      var firstName = (userData.name || 'Usuario').split(' ')[0];
-      DOM.modalTitle.textContent = firstName + ', estamos procesando tu solicitud';
-      DOM.modalMessage.textContent = 'Tus documentos se están subiendo de forma segura. Solo tomará unos segundos, gracias por tu paciencia.';
-      DOM.modalLabel.textContent = 'Preparando...';
-      DOM.modalPct.textContent = '0%';
-      DOM.modalBar.style.width = '0%';
-    } else {
-      DOM.uploadModal.classList.add('hidden');
-      updateUploadBar(0);
-      DOM.uploadDetail.textContent = '';
-    }
-  }
-  function updateUploadBar(pct) {
-    DOM.uploadBar.style.width = pct + '%';
-    DOM.uploadPct.textContent = pct + '%';
-    // También actualizar modal
-    DOM.modalBar.style.width = pct + '%';
-    DOM.modalPct.textContent = pct + '%';
-  }
-  function updateUploadLabel(text) {
-    DOM.uploadLabel.textContent = text;
-    DOM.modalLabel.textContent = text;
-  }
+    // 2. Registrar en el Sheet
+    var payload = {
+      solicitud:      solicitud,
+      poliza:         poliza,
+      tipoEstudio:    tipoEstudio,
+      tipoSolicitud:  document.getElementById('tipo-solicitud').value.trim(),
+      fechaHora:      fechaHora,
+      filesCount:     filesCount,
+    };
 
-  // ─── PANTALLA DE ÉXITO ─────────────────────────────────────────
-  function showSuccess(result, payload) {
-    console.log('[showSuccess] Mostrando pantalla de éxito — ID:', result.id);
-    DOM.formSection.style.display = 'none';
-    DOM.successScreen.classList.remove('hidden');
-    DOM.successScreen.classList.add('animate-fade-in-up');
+    var result = await new Promise(function(resolve, reject) {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .submitFormData(payload);
+    });
 
-    var firstName = (userData.name || 'Usuario').split(' ')[0];
-    DOM.successTitle.textContent = '\u00A1Excelente trabajo, ' + firstName + '!';
-    DOM.successSubtitle.textContent = 'La solicitud fue guardada correctamente en el sistema.';
-
-    var folderLink = result.folderUrl
-      ? '<a href="' + result.folderUrl + '" target="_blank" class="text-blue-600 underline hover:text-blue-800">Abrir carpeta</a>'
-      : '\u2014';
-
-    DOM.successMeta.innerHTML = [
-      row('ID de Registro',       '#' + result.id),
-      row('N.\u00BA de Solicitud', payload.solicitud),
-      row('N.\u00BA de P\u00F3liza', payload.poliza),
-      row('Tipo de Estudio',      payload.tipoEstudio),
-      row('Archivos adjuntos',    result.filesCount + ' archivo(s)'),
-      row('Carpeta de Solicitud', folderLink),
-      row('Fecha llegada correo', formatDT(payload.fechaHora)),
-      row('Registrado por',       result.userName),
-      row('Email',                result.userEmail),
-      row('Fecha de registro',    result.ts),
-    ].join('');
-  }
-
-  function row(k, v) {
-    return '<div class="flex justify-between py-2 border-b border-slate-100 last:border-0">' +
-      '<span class="text-slate-500 text-xs font-medium">' + k + '</span>' +
-      '<span class="text-slate-800 text-xs font-semibold text-right">' + v + '</span></div>';
-  }
-  function formatDT(dt) {
-    if (!dt) return '\u2014';
-    var d = new Date(dt);
-    return d.toLocaleDateString('es-CO', { day:'2-digit', month:'2-digit', year:'numeric' })
-      + ' ' + d.toLocaleTimeString('es-CO', { hour:'2-digit', minute:'2-digit' });
-  }
-
-  // ─── RESET ─────────────────────────────────────────────────────
-  function reset() {
-    console.log('[App.reset] Reiniciando formulario');
-    DOM.form.reset();
-    selectedTipos = [];
-    DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]').forEach(function(cb) { cb.checked = false; });
-    DOM.formSection.style.display = '';
-    DOM.successScreen.classList.add('hidden');
-    DOM.successScreen.classList.remove('animate-fade-in-up');
-    DOM.anexoSection.classList.add('hidden');
-    DOM.hintSi.classList.add('hidden');
-    DOM.hintSi.classList.remove('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
-    DOM.hintNo.classList.add('hidden');
-    DOM.hintNo.classList.remove('bg-amber-50', 'border-amber-200', 'text-amber-700', 'flex');
-    clearFiles();
-    hideAlert();
+    setLoading(false);
     showUploadProgress(false);
-    DOM.uploadModal.classList.add('hidden');
-  }
 
-  // ─── API PÚBLICA ───────────────────────────────────────────────
-  return { init: init, clearFiles: clearFiles, reset: reset };
+    if (result.success) {
+      showSuccess(result, payload);
+    } else {
+      showAlert(result.error || 'Error desconocido.');
+    }
+
+  } catch (err) {
+    setLoading(false);
+    showUploadProgress(false);
+    showAlert('Error: ' + (err.message || err));
+  }
+}
+
+// ─── UI HELPERS ────────────────────────────────────────────────
+function setLoading(on) {
+  DOM.btnSubmit.disabled = on;
+  DOM.spinner.classList.toggle('hidden', !on);
+  DOM.spinner.classList.toggle('inline-block', on);
+  DOM.btnText.textContent = on ? 'Registrando...' : 'Registrar Solicitud';
+}
+
+function showAlert(msg) {
+  DOM.alertMsg.textContent = msg;
+  DOM.alertError.classList.remove('hidden');
+  DOM.alertError.classList.add('flex');
+}
+
+function hideAlert() {
+  DOM.alertError.classList.add('hidden');
+  DOM.alertError.classList.remove('flex');
+}
+
+function showUploadProgress(show) {
+  DOM.uploadSection.classList.toggle('hidden', !show);
+  if (show) {
+    DOM.uploadModal.classList.remove('hidden');
+    var firstName = (userData.name || 'Usuario').split(' ')[0];
+    DOM.modalTitle.textContent = firstName + ', estamos procesando tu solicitud';
+    DOM.modalMessage.textContent = 'Tus documentos se están siendo asignados. Solo tomará unos segundos, gracias por tu paciencia.';
+    DOM.modalLabel.textContent = 'Preparando...';
+    DOM.modalPct.textContent = '0%';
+    DOM.modalBar.style.width = '0%';
+  } else {
+    DOM.uploadModal.classList.add('hidden');
+    updateUploadBar(0);
+    DOM.uploadDetail.textContent = '';
+  }
+}
+
+function updateUploadBar(pct) {
+  DOM.uploadBar.style.width = pct + '%';
+  DOM.uploadPct.textContent = pct + '%';
+  DOM.modalBar.style.width = pct + '%';
+  DOM.modalPct.textContent = pct + '%';
+}
+
+function updateUploadLabel(text) {
+  DOM.uploadLabel.textContent = text;
+  DOM.modalLabel.textContent = text;
+}
+
+// ─── PANTALLA DE ÉXITO ─────────────────────────────────────────
+function showSuccess(result, payload) {
+  console.log('[showSuccess] Mostrando pantalla de éxito — ID:', result.id);
+  clearDraft();
+  DOM.formSection.style.display = 'none';
+  DOM.successScreen.classList.remove('hidden');
+  DOM.successScreen.classList.add('animate-fade-in-up');
+  
+  var firstName = (userData.name || 'Usuario').split(' ')[0];
+  DOM.successTitle.textContent = '¡Excelente trabajo, ' + firstName + '!';
+  DOM.successSubtitle.textContent = 'La solicitud fue guardada correctamente en el sistema.';
+  
+  var folderLink = result.folderUrl
+    ? '<a href="' + result.folderUrl + '" target="_blank" class="text-blue-600 underline hover:text-blue-800">Abrir carpeta</a>'
+    : '—';
+
+  DOM.successMeta.innerHTML = [
+    row('ID de Registro',       '#' + result.id),
+    row('N.º de Solicitud', payload.solicitud),
+    row('N.º de Póliza', payload.poliza),
+    row('Tipo de Proceso',      payload.tipoEstudio),
+    row('Archivos adjuntos',    result.filesCount + ' archivo(s)'),
+    row('Carpeta de Solicitud', folderLink),
+    row('Fecha llegada correo', formatDT(payload.fechaHora)),
+    row('Registrado por',       result.userName),
+    row('Email',                result.userEmail),
+    row('Fecha de registro',    result.ts),
+  ].join('');
+}
+
+function row(k, v) {
+  return '<div class="flex justify-between py-2 border-b border-slate-100 last:border-0">' +
+    '<span class="text-slate-500 text-xs font-medium">' + k + '</span>' +
+    '<span class="text-slate-800 text-xs font-semibold text-right">' + v + '</span></div>';
+}
+
+function formatDT(dt) {
+  if (!dt) return '—';
+  var d = new Date(dt);
+  return d.toLocaleDateString('es-CO', { day:'2-digit', month:'2-digit', year:'numeric' }) + 
+         ' ' + d.toLocaleTimeString('es-CO', { hour:'2-digit', minute:'2-digit' });
+}
+
+// ─── RESET ─────────────────────────────────────────────────────
+function reset() {
+  console.log('[App.reset] Reiniciando formulario');
+  clearDraft();
+  DOM.form.reset();
+  selectedTipos = [];
+  DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]').forEach(function(cb) { cb.checked = false; });
+  DOM.formSection.style.display = '';
+  DOM.successScreen.classList.add('hidden');
+  DOM.successScreen.classList.remove('animate-fade-in-up');
+  DOM.anexoSection.classList.add('hidden');
+  DOM.hintSi.classList.add('hidden');
+  DOM.hintSi.classList.remove('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
+  DOM.hintNo.classList.add('hidden');
+  DOM.hintNo.classList.remove('bg-amber-50', 'border-amber-200', 'text-amber-700', 'flex');
+  clearFiles();
+  hideAlert();
+  showUploadProgress(false);
+  DOM.uploadModal.classList.add('hidden');
+  // Limpiar búsqueda de tipos
+  if (DOM.tipoSearch) DOM.tipoSearch.value = '';
+  if (DOM.tipoSearchClear) DOM.tipoSearchClear.classList.add('hidden');
+  if (DOM.tipoSearchCount) DOM.tipoSearchCount.classList.add('hidden');
+  var labels = DOM.tipoEstudioContainer.querySelectorAll('label');
+  labels.forEach(function(label) { label.style.display = ''; });
+}
+
+// ─── API PÚBLICA ───────────────────────────────────────────────
+return { init: init, clearFiles: clearFiles, reset: reset };
 
 })();
 

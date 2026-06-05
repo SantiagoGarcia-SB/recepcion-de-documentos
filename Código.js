@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- *  RECEPCIÓN DE REESTUDIOS — EL LIBERTADOR
+ *  RECEPCIÓN DE REESTUDIOS — EL LIBERTADOR (PROCESO CORREO)
  *  Backend Google Apps Script
  * ═══════════════════════════════════════════════════════════════
  */
@@ -11,8 +11,12 @@
 const CONFIG = {
   SPREADSHEET_ID: '1jGa30nF7DTlu6bRoU8cOBqU8c_AP-bq6LP8D52JpaPQ',
   SHEET_NAME:     'Solicitudes',
-  FOLDER_ID:      '18W_7bpKOMQrY4YJrrcqPw9Jr1G93pVa0',
+  FOLDER_ID:      '0APmEW6M8yBcVUk9PVA',
 };
+
+// NUEVA CONFIGURACIÓN: Hoja destino de consolidado
+const ID_SHEET_DESTINO = '1slgykTgjoAtCd6KmlG7Lqiuw-nM1hSguQbi0XqeLu7U';
+const NOMBRE_HOJA_DESTINO = 'ORIGEN'; // Sincronizado con la pestaña de tu consolidador
 
 const TIPOS_ESTUDIO = {
   'Aceptación LMI':                           true,
@@ -54,7 +58,12 @@ const HEADERS = [
   'URL Carpeta de Solicitud',
   'Fecha y Hora de Registro',
   'Registrado Por (Nombre)',
-  'Email Asignador',
+  'Email Registrador',
+  'Nombre Evaluador',
+  'Estado Evaluación',
+  'Motivo Devolución',
+  'Notificacion Gmail Chat',
+  'Tipo de solicitud',
 ];
 
 // ═════════════════════════════════════════════════════════════════
@@ -64,10 +73,10 @@ const HEADERS = [
 function doGet() {
   console.log('[doGet] Iniciando renderizado de la webapp');
   return HtmlService.createTemplateFromFile('Index')
-    .evaluate()
-    .setTitle('Recepción de Reestudios — El Libertador')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+      .evaluate()
+      .setTitle('Recepción de Reestudios — El Libertador')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 function include(filename) {
@@ -98,10 +107,6 @@ function getTiposEstudio() {
 
 // ─────────────────────────────────────────────────────────────────
 //  UPLOAD DE ARCHIVOS
-//  Estrategia: cada archivo se sube individualmente en una sola llamada.
-//  El frontend envía el base64 completo por archivo.
-//  Para archivos > 30MB, el frontend los divide en partes y usa
-//  uploadChunkToTemp + finalizeUpload.
 // ─────────────────────────────────────────────────────────────────
 
 /**
@@ -117,16 +122,25 @@ function uploadSingleFile(params) {
     tipoEstudio: params.tipoEstudio,
     base64Length: params.base64 ? params.base64.length : 0
   }));
+
   try {
     var folder = _getOrCreateSolicitudFolder(params.solicitud);
     var now = new Date();
-    var datePrefix = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd_HH-mm-ss');
-    var newName = datePrefix + ' - ' + params.tipoEstudio + ' - ' + params.fileName;
+    
+    // ✅ UNIFORMIDAD ABSOLUTA: Formato "Solicitud_{nro}_{fechaFormateada}"
+    var fechaFormateada = Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd-MM-yyyy HH.mm');
+    var baseName = 'Solicitud_' + params.solicitud + '_' + fechaFormateada;
+    
+    // Obtener la extensión original para no corromper el archivo
+    var extension = '';
+    if (params.fileName && params.fileName.lastIndexOf('.') !== -1) {
+      extension = params.fileName.substring(params.fileName.lastIndexOf('.'));
+    }
+    var newName = baseName + extension;
 
     var decoded = Utilities.base64Decode(params.base64);
     var blob = Utilities.newBlob(decoded, params.fileType || 'application/octet-stream', newName);
 
-    // LOG CRÍTICO: Datos antes de crear archivo en Drive
     console.log('[uploadSingleFile] Antes de folder.createFile — ' + JSON.stringify({
       folderName: folder.getName(),
       folderId: folder.getId(),
@@ -136,7 +150,6 @@ function uploadSingleFile(params) {
     }));
 
     var file = folder.createFile(blob);
-
     console.log('[uploadSingleFile] Archivo creado exitosamente — fileId: ' + file.getId());
     return { success: true };
   } catch (e) {
@@ -155,14 +168,11 @@ function createTempFile(params) {
   console.log('[createTempFile] Entrada — params: ' + JSON.stringify(params));
   try {
     var folder = DriveApp.getFolderById(CONFIG.FOLDER_ID);
-
-    // LOG CRÍTICO: Datos antes de crear archivo temporal
     console.log('[createTempFile] Antes de folder.createFile — ' + JSON.stringify({
       folderName: folder.getName(),
       folderId: CONFIG.FOLDER_ID,
       tempFileName: '_temp_' + params.uploadId
     }));
-
     var tempFile = folder.createFile('_temp_' + params.uploadId, '', 'text/plain');
     console.log('[createTempFile] Archivo temporal creado — tempFileId: ' + tempFile.getId());
     return { success: true, tempFileId: tempFile.getId() };
@@ -175,7 +185,6 @@ function createTempFile(params) {
 
 /**
  * Appenda un chunk de base64 al archivo temporal.
- * Usa DriveApp API para append real sin leer todo el archivo.
  * @param {Object} params - { tempFileId, chunk }
  * @returns {{success: boolean}}
  */
@@ -183,17 +192,14 @@ function appendChunkToTemp(params) {
   console.log('[appendChunkToTemp] Entrada — tempFileId: ' + params.tempFileId + ', chunkLength: ' + (params.chunk ? params.chunk.length : 0));
   try {
     var file = DriveApp.getFileById(params.tempFileId);
-    // Leer contenido actual y concatenar
     var current = file.getBlob().getDataAsString();
 
-    // LOG CRÍTICO: Datos antes de setContent
     console.log('[appendChunkToTemp] Antes de file.setContent — ' + JSON.stringify({
       tempFileId: params.tempFileId,
       currentLength: current.length,
       chunkLength: params.chunk ? params.chunk.length : 0,
       newTotalLength: current.length + (params.chunk ? params.chunk.length : 0)
     }));
-
     file.setContent(current + params.chunk);
     console.log('[appendChunkToTemp] Chunk agregado exitosamente');
     return { success: true };
@@ -221,16 +227,24 @@ function finalizeUpload(params) {
     var tempFile = DriveApp.getFileById(params.tempFileId);
     var fullBase64 = tempFile.getBlob().getDataAsString();
     console.log('[finalizeUpload] Base64 leído del temp — longitud: ' + fullBase64.length);
-
+    
     var folder = _getOrCreateSolicitudFolder(params.solicitud);
     var now = new Date();
-    var datePrefix = Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd_HH-mm-ss');
-    var newName = datePrefix + ' - ' + params.tipoEstudio + ' - ' + params.fileName;
+    
+    // ✅ UNIFORMIDAD ABSOLUTA: Formato "Solicitud_{nro}_{fechaFormateada}"
+    var fechaFormateada = Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd-MM-yyyy HH.mm');
+    var baseName = 'Solicitud_' + params.solicitud + '_' + fechaFormateada;
+    
+    // Extraer extensión original para no corromper el archivo
+    var extension = '';
+    if (params.fileName && params.fileName.lastIndexOf('.') !== -1) {
+      extension = params.fileName.substring(params.fileName.lastIndexOf('.'));
+    }
+    var newName = baseName + extension;
 
     var decoded = Utilities.base64Decode(fullBase64);
     var blob = Utilities.newBlob(decoded, params.fileType || 'application/octet-stream', newName);
 
-    // LOG CRÍTICO: Datos antes de crear archivo final en Drive
     console.log('[finalizeUpload] Antes de folder.createFile — ' + JSON.stringify({
       folderName: folder.getName(),
       folderId: folder.getId(),
@@ -238,11 +252,8 @@ function finalizeUpload(params) {
       blobType: params.fileType || 'application/octet-stream',
       decodedBytes: decoded.length
     }));
-
     var file = folder.createFile(blob);
-
     console.log('[finalizeUpload] Archivo final creado — fileId: ' + file.getId());
-
     tempFile.setTrashed(true);
     console.log('[finalizeUpload] Archivo temporal eliminado');
     return { success: true };
@@ -253,9 +264,6 @@ function finalizeUpload(params) {
   }
 }
 
-/**
- * Registra la solicitud en el Sheet (los archivos ya están en Drive).
- */
 function submitFormData(data) {
   console.log('[submitFormData] Entrada — data: ' + JSON.stringify(data));
   try {
@@ -267,7 +275,6 @@ function submitFormData(data) {
       return { success: false, error: 'Debes seleccionar al menos un tipo de estudio.' };
     }
 
-    // Validar que todos los tipos existan
     for (var i = 0; i < tiposArray.length; i++) {
       if (!TIPOS_ESTUDIO.hasOwnProperty(tiposArray[i])) {
         console.log('[submitFormData] Tipo de estudio no reconocido: ' + tiposArray[i]);
@@ -277,7 +284,6 @@ function submitFormData(data) {
 
     var requiereAnexo = tiposArray.some(function(tipo) { return TIPOS_ESTUDIO[tipo]; });
     var filesCount = parseInt(data.filesCount) || 0;
-
     if (requiereAnexo && filesCount === 0) {
       console.log('[submitFormData] Validación fallida — requiere anexo pero filesCount=0');
       return { success: false, error: 'Al menos un tipo de estudio seleccionado requiere documento anexo.' };
@@ -293,7 +299,6 @@ function submitFormData(data) {
     var folderUrl    = folder.getUrl();
     var arrivalDate  = data.fechaHora ? new Date(data.fechaHora) : null;
 
-    // LOG CRÍTICO: Datos exactos antes de appendRow
     var rowData = [
       nextId,
       solicitudStr,
@@ -305,7 +310,13 @@ function submitFormData(data) {
       now,
       uData.name,
       uData.email,
+      '',  // Nombre Evaluador
+      '',  // Estado Evaluación
+      '',  // Motivo Devolución
+      '',  // Notificacion Gmail Chat
+      (data.tipoSolicitud || '').toString().trim(),
     ];
+
     console.log('[submitFormData] Antes de sheet.appendRow — ' + JSON.stringify({
       nextId: nextId,
       solicitud: solicitudStr,
@@ -316,15 +327,35 @@ function submitFormData(data) {
       folderUrl: folderUrl,
       now: now.toISOString(),
       userName: uData.name,
-      userEmail: uData.email
+      userEmail: uData.email,
+      tipoSolicitud: (data.tipoSolicitud || '').toString().trim()
     }));
 
+    // 1. Guarda en el Sheet Principal
     sheet.appendRow(rowData);
-
     var lastRow = sheet.getLastRow();
     sheet.getRange(lastRow, 6).setNumberFormat('dd/MM/yyyy HH:mm');
     sheet.getRange(lastRow, 8).setNumberFormat('dd/MM/yyyy HH:mm:ss');
 
+    // 2. Lógica de negocio para consolidador
+    var claseDeSolicitud = "Reestudio";
+    var tipoDeProceso = "Anexo";
+    if (tiposArray.indexOf("Nueva UAR") !== -1) {
+      claseDeSolicitud = "Nueva";
+    } else if (tiposArray.indexOf("Deudor UAR") !== -1) {
+      claseDeSolicitud = "Adicional";
+    }
+
+    try {
+      var destSs = SpreadsheetApp.openById(ID_SHEET_DESTINO);
+      var destSheet = destSs.getSheetByName(NOMBRE_HOJA_DESTINO) || destSs.getSheets()[0];
+      destSheet.appendRow([arrivalDate || now, solicitudStr, folderUrl, "CORREO", claseDeSolicitud, tipoDeProceso]);
+      console.log('[submitFormData] Registro agregado a la hoja de consolidado.');
+    } catch (destErr) {
+      console.error('[submitFormData] Error al guardar en hoja destino externa: ' + destErr.message);
+    }
+
+    // ✅ result se declara AQUÍ, antes de usarlo
     var result = {
       success:    true,
       id:         nextId,
@@ -335,7 +366,24 @@ function submitFormData(data) {
       folderUrl:  folderUrl,
     };
     console.log('[submitFormData] Registro exitoso — resultado: ' + JSON.stringify(result));
+
+    // 3. Correo de confirmación
+    try {
+      _sendConfirmationEmail(uData.email, result, {
+        solicitud:      solicitudStr,
+        poliza:         (data.poliza || '').toString().trim(),
+        tipoEstudio:    tipoEstudio,
+        filesCount:     filesCount,
+        arrivalDateStr: arrivalDate
+          ? Utilities.formatDate(arrivalDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+          : '—',
+      }, tiposArray);
+    } catch (mailErr) {
+      console.error('[submitFormData] Error enviando correo de confirmación: ' + mailErr.message);
+    }
+
     return result;
+
   } catch (e) {
     console.error('[submitFormData] ERROR — message: ' + e.message + ' | stack: ' + (e.stack || 'N/A'));
     Logger.log('[submitFormData] ERROR — message: ' + e.message + ' | stack: ' + (e.stack || 'N/A'));
@@ -355,20 +403,23 @@ function _capitalize(str) {
 function _getOrCreateSolicitudFolder(solicitudStr) {
   console.log('[_getOrCreateSolicitudFolder] Buscando/creando carpeta para solicitud: ' + solicitudStr);
   var parentFolder = DriveApp.getFolderById(CONFIG.FOLDER_ID);
-  var folderName   = 'Solicitud ' + solicitudStr;
-  var folders = parentFolder.getFoldersByName(folderName);
-  if (folders.hasNext()) {
-    var existing = folders.next();
+  
+  // 1. FORMATO DE NOMBRE ESTANDARIZADO
+  var folderName   = 'SOLICITUD -' + solicitudStr;
+  
+  // 2. BÚSQUEDA MEJORADA (Evita duplicados y lee papeleras)
+  var iteradorCarpetas = parentFolder.searchFolders('title = "' + folderName + '" and trashed = false');
+  if (iteradorCarpetas.hasNext()) {
+    var existing = iteradorCarpetas.next();
     console.log('[_getOrCreateSolicitudFolder] Carpeta existente encontrada — id: ' + existing.getId());
     return existing;
   }
 
-  // LOG CRÍTICO: Antes de crear carpeta nueva
+  // 3. CREACIÓN SI NO EXISTE
   console.log('[_getOrCreateSolicitudFolder] Antes de parentFolder.createFolder — ' + JSON.stringify({
     parentFolderId: CONFIG.FOLDER_ID,
     newFolderName: folderName
   }));
-
   var newFolder = parentFolder.createFolder(folderName);
   console.log('[_getOrCreateSolicitudFolder] Carpeta creada — id: ' + newFolder.getId());
   return newFolder;
@@ -398,16 +449,13 @@ function _getOrCreateSheet() {
 function _setupSheetHeaders(sheet) {
   console.log('[_setupSheetHeaders] Configurando encabezados de la hoja');
   var headerRange = sheet.getRange(1, 1, 1, HEADERS.length);
-
-  // LOG CRÍTICO: Datos antes de setValues en headers
   console.log('[_setupSheetHeaders] Antes de headerRange.setValues — ' + JSON.stringify({ headers: HEADERS }));
-
   headerRange.setValues([HEADERS]);
   headerRange.setFontWeight('bold');
   headerRange.setFontColor('#FFFFFF');
   headerRange.setBackground('#253150');
   headerRange.setHorizontalAlignment('center');
-  var widths = [90, 160, 140, 260, 130, 200, 300, 180, 200, 220];
+  var widths = [90, 160, 140, 260, 130, 200, 300, 180, 200, 220, 160, 160, 200, 180, 160];
   widths.forEach(function(w, i) { sheet.setColumnWidth(i + 1, w); });
   sheet.setFrozenRows(1);
 }
@@ -431,4 +479,110 @@ function _getUser() {
     console.error('[_getUser] ERROR obteniendo email — message: ' + e.message + ' | stack: ' + (e.stack || 'N/A'));
     return 'usuario@desconocido.com';
   }
+}
+
+/**
+ * Envía correo de confirmación al registrador con el resumen de la solicitud.
+ * Usa colores corporativos: Rojo #BD0F14, Navy #253150, Gris #706F6F.
+ */
+function _sendConfirmationEmail(toEmail, result, payload, tiposArray) {
+  var firstName = (result.userName || 'Usuario').split(' ')[0];
+
+  var rows = [
+    ['ID de Registro',          '#' + result.id],
+    ['N.º de Solicitud',        payload.solicitud],
+    ['N.º de Póliza',           payload.poliza],
+    ['Tipo de Estudio',         payload.tipoEstudio],
+    ['Archivos adjuntos',       payload.filesCount + ' archivo(s)'],
+    ['Fecha llegada correo',    payload.arrivalDateStr],
+    ['Registrado por',          result.userName],
+    ['Email',                   result.userEmail],
+    ['Fecha de registro',       result.ts],
+  ];
+
+  var rowsHtml = rows.map(function(r) {
+    return '<tr>' +
+      '<td style="padding:12px 16px;color:#706F6F;font-size:13px;font-weight:500;border-bottom:1px solid #f1f5f9;white-space:nowrap;vertical-align:top;">' + r[0] + '</td>' +
+      '<td style="padding:12px 16px;color:#253150;font-size:13px;font-weight:600;border-bottom:1px solid #f1f5f9;text-align:right;vertical-align:top;">' + r[1] + '</td>' +
+    '</tr>';
+  }).join('');
+
+  var folderRow = '<tr>' +
+    '<td style="padding:12px 16px;color:#706F6F;font-size:13px;font-weight:500;white-space:nowrap;">Carpeta de Solicitud</td>' +
+    '<td style="padding:12px 16px;font-size:13px;font-weight:600;text-align:right;">' +
+      '<a href="' + result.folderUrl + '" style="color:#BD0F14;text-decoration:underline;font-weight:700;">Abrir carpeta en Drive →</a>' +
+    '</td>' +
+  '</tr>';
+
+  var html = '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"></head>' +
+    '<body style="margin:0;padding:0;background:#f8fafc;font-family:Inter,Arial,Helvetica,sans-serif;">' +
+
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:40px 16px;">' +
+    '<tr><td align="center">' +
+    '<table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(37,49,80,0.08);">' +
+
+    // ── Header corporativo rojo ──
+    '<tr><td style="background:#BD0F14;padding:32px 36px;">' +
+      '<table width="100%" cellpadding="0" cellspacing="0"><tr>' +
+        '<td>' +
+          '<p style="margin:0;color:#ffffff;font-size:20px;font-weight:800;letter-spacing:-0.3px;">El Libertador</p>' +
+          '<p style="margin:6px 0 0;color:rgba(255,255,255,0.75);font-size:12px;font-weight:500;letter-spacing:0.3px;">Recepción de solicitudes UAR y reestudios</p>' +
+        '</td>' +
+        '<td align="right" valign="middle">' +
+          '<span style="display:inline-block;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);border-radius:8px;padding:6px 12px;color:rgba(255,255,255,0.95);font-size:10px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;">Módulo de Radicación</span>' +
+        '</td>' +
+      '</tr></table>' +
+    '</td></tr>' +
+
+    // ── Indicador de éxito ──
+    '<tr><td style="padding:36px 36px 0;text-align:center;">' +
+      '<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">' +
+        '<div style="width:72px;height:72px;background:#f0fdf4;border:2px solid #86efac;border-radius:50%;margin:0 auto 20px;text-align:center;line-height:72px;">' +
+          '<span style="font-size:36px;line-height:72px;">✅</span>' +
+        '</div>' +
+      '</td></tr></table>' +
+      '<h2 style="margin:0 0 8px;color:#253150;font-size:22px;font-weight:800;">¡Excelente trabajo, ' + firstName + '!</h2>' +
+      '<p style="margin:0;color:#706F6F;font-size:14px;line-height:1.5;">La solicitud fue registrada y guardada correctamente en el sistema.</p>' +
+    '</td></tr>' +
+
+    // ── Tabla resumen ──
+    '<tr><td style="padding:28px 36px 12px;">' +
+      '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">' +
+        '<tr><td colspan="2" style="background:#253150;padding:12px 16px;">' +
+          '<p style="margin:0;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;">Resumen del Registro</p>' +
+        '</td></tr>' +
+        rowsHtml + folderRow +
+      '</table>' +
+    '</td></tr>' +
+
+    // ── Mensaje informativo ──
+    '<tr><td style="padding:12px 36px 28px;">' +
+      '<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF5F5;border-radius:8px;border:1px solid #FECACA;padding:14px 16px;">' +
+        '<tr><td style="padding:14px 16px;">' +
+          '<p style="margin:0;color:#BD0F14;font-size:12px;font-weight:600;">Próximos pasos</p>' +
+          '<p style="margin:6px 0 0;color:#706F6F;font-size:12px;line-height:1.5;">Tu solicitud será asignada al equipo correspondiente, gracias por tu gestión</p>' +
+        '</td></tr>' +
+      '</table>' +
+    '</td></tr>' +
+
+    // ── Footer navy ──
+    '<tr><td style="background:#253150;padding:24px 36px;">' +
+      '<table width="100%" cellpadding="0" cellspacing="0"><tr>' +
+        '<td>' +
+          '<p style="margin:0;color:rgba(255,255,255,0.9);font-size:12px;font-weight:700;">El Libertador</p>' +
+          '<p style="margin:4px 0 0;color:rgba(255,255,255,0.5);font-size:11px;">Servicio al Cliente — Uso interno</p>' +
+        '</td>' +
+        '<td align="right" valign="middle">' +
+          '<p style="margin:0;color:rgba(255,255,255,0.4);font-size:10px;">Este correo fue generado automáticamente.<br>No es necesario responder.</p>' +
+        '</td>' +
+      '</tr></table>' +
+    '</td></tr>' +
+
+    '</table></td></tr></table>' +
+    '</body></html>';
+
+  var subject = '✅ Solicitud ' + payload.solicitud + ' registrada para asignación';
+
+  GmailApp.sendEmail(toEmail, subject, '', { htmlBody: html, name: 'Radicación · El Libertador' });
+  console.log('[_sendConfirmationEmail] Correo enviado a: ' + toEmail);
 }
