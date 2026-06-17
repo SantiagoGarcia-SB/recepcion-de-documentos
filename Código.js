@@ -583,6 +583,6 @@ function _sendConfirmationEmail(toEmail, result, payload, tiposArray) {
 
   var subject = '✅ Solicitud ' + payload.solicitud + ' registrada para asignación';
 
-  GmailApp.sendEmail(toEmail, subject, '', { htmlBody: html, name: 'Radicación · El Libertador' });
+  MailApp.sendEmail({ to: toEmail, subject: subject, htmlBody: html, name: 'Radicación · El Libertador' });
   console.log('[_sendConfirmationEmail] Correo enviado a: ' + toEmail);
 }
