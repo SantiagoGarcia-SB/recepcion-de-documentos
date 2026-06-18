@@ -64,6 +64,7 @@ const HEADERS = [
   'Motivo Devolución',
   'Notificacion Gmail Chat',
   'Tipo de solicitud',
+  'Estado Registro',
 ];
 
 // ═════════════════════════════════════════════════════════════════
@@ -315,6 +316,7 @@ function submitFormData(data) {
       '',  // Motivo Devolución
       '',  // Notificacion Gmail Chat
       (data.tipoSolicitud || '').toString().trim(),
+      'Pendiente',
     ];
 
     console.log('[submitFormData] Antes de sheet.appendRow — ' + JSON.stringify({
@@ -337,51 +339,18 @@ function submitFormData(data) {
     sheet.getRange(lastRow, 6).setNumberFormat('dd/MM/yyyy HH:mm');
     sheet.getRange(lastRow, 8).setNumberFormat('dd/MM/yyyy HH:mm:ss');
 
-    // 2. Lógica de negocio para consolidador
-    var claseDeSolicitud = "Reestudio";
-    var tipoDeProceso = "Anexo";
-    if (tiposArray.indexOf("Nueva UAR") !== -1) {
-      claseDeSolicitud = "Nueva";
-    } else if (tiposArray.indexOf("Deudor UAR") !== -1) {
-      claseDeSolicitud = "Adicional";
-    }
-
-    try {
-      var destSs = SpreadsheetApp.openById(ID_SHEET_DESTINO);
-      var destSheet = destSs.getSheetByName(NOMBRE_HOJA_DESTINO) || destSs.getSheets()[0];
-      destSheet.appendRow([arrivalDate || now, solicitudStr, folderUrl, "CORREO", claseDeSolicitud, tipoDeProceso]);
-      console.log('[submitFormData] Registro agregado a la hoja de consolidado.');
-    } catch (destErr) {
-      console.error('[submitFormData] Error al guardar en hoja destino externa: ' + destErr.message);
-    }
-
-    // ✅ result se declara AQUÍ, antes de usarlo
+    // 2. Resultado (Pendiente — NO escribe en ORIGEN ni envía correo)
     var result = {
       success:    true,
       id:         nextId,
+      rowNumber:  lastRow,
       userName:   uData.name,
       userEmail:  uData.email,
       ts:         Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss'),
       filesCount: filesCount,
       folderUrl:  folderUrl,
     };
-    console.log('[submitFormData] Registro exitoso — resultado: ' + JSON.stringify(result));
-
-    // 3. Correo de confirmación
-    try {
-      _sendConfirmationEmail(uData.email, result, {
-        solicitud:      solicitudStr,
-        poliza:         (data.poliza || '').toString().trim(),
-        tipoEstudio:    tipoEstudio,
-        filesCount:     filesCount,
-        arrivalDateStr: arrivalDate
-          ? Utilities.formatDate(arrivalDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
-          : '—',
-      }, tiposArray);
-    } catch (mailErr) {
-      console.error('[submitFormData] Error enviando correo de confirmación: ' + mailErr.message);
-    }
-
+    console.log('[submitFormData] Registro pendiente — resultado: ' + JSON.stringify(result));
     return result;
 
   } catch (e) {
@@ -391,9 +360,199 @@ function submitFormData(data) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+//  CONFIRMAR REGISTRO (Fase 2: escribe en ORIGEN + envía correo)
+// ─────────────────────────────────────────────────────────────────
+
+function confirmRegistro(registroId) {
+  console.log('[confirmRegistro] Confirmando registro ID: ' + registroId);
+  try {
+    var sheet = _getOrCreateSheet();
+    var rowNum = _findRowById(sheet, registroId);
+    if (rowNum === -1) {
+      return { success: false, error: 'Registro no encontrado: ' + registroId };
+    }
+
+    var rowData = sheet.getRange(rowNum, 1, 1, HEADERS.length).getValues()[0];
+    var estadoActual = rowData[15]; // columna P = Estado Registro
+    if (estadoActual === 'Confirmado') {
+      return { success: false, error: 'Este registro ya fue confirmado.' };
+    }
+
+    // Actualizar estado a Confirmado
+    sheet.getRange(rowNum, 16).setValue('Confirmado');
+
+    // Leer datos de la fila
+    var solicitudStr = String(rowData[1]);
+    var polizaStr    = String(rowData[2]);
+    var tipoEstudio  = String(rowData[3]);
+    var filesCount   = parseInt(rowData[4]) || 0;
+    var arrivalDate  = rowData[5] instanceof Date ? rowData[5] : (rowData[5] ? new Date(rowData[5]) : null);
+    var folderUrl    = String(rowData[6]);
+    var registroDate = rowData[7];
+    var userName     = String(rowData[8]);
+    var userEmail    = String(rowData[9]);
+    var tipoSolicitud = String(rowData[14]);
+
+    var tiposArray = tipoEstudio.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
+
+    // Lógica de negocio para consolidador
+    var claseDeSolicitud = "Reestudio";
+    var tipoDeProceso = "Anexo";
+    if (tiposArray.indexOf("Nueva UAR") !== -1) {
+      claseDeSolicitud = "Nueva";
+    } else if (tiposArray.indexOf("Deudor UAR") !== -1) {
+      claseDeSolicitud = "Adicional";
+    }
+
+    // Escribir en ORIGEN
+    try {
+      var destSs = SpreadsheetApp.openById(ID_SHEET_DESTINO);
+      var destSheet = destSs.getSheetByName(NOMBRE_HOJA_DESTINO) || destSs.getSheets()[0];
+      destSheet.appendRow([arrivalDate || new Date(), solicitudStr, folderUrl, "CORREO", claseDeSolicitud, tipoDeProceso]);
+      console.log('[confirmRegistro] Registro agregado a hoja de consolidado.');
+    } catch (destErr) {
+      console.error('[confirmRegistro] Error al guardar en hoja destino: ' + destErr.message);
+    }
+
+    // Enviar correo de confirmación
+    var result = {
+      success:    true,
+      id:         registroId,
+      userName:   userName,
+      userEmail:  userEmail,
+      ts:         registroDate instanceof Date
+        ? Utilities.formatDate(registroDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss')
+        : String(registroDate),
+      filesCount: filesCount,
+      folderUrl:  folderUrl,
+    };
+
+    try {
+      _sendConfirmationEmail(userEmail, result, {
+        solicitud:      solicitudStr,
+        poliza:         polizaStr,
+        tipoEstudio:    tipoEstudio,
+        filesCount:     filesCount,
+        arrivalDateStr: arrivalDate
+          ? Utilities.formatDate(arrivalDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+          : '—',
+      }, tiposArray);
+    } catch (mailErr) {
+      console.error('[confirmRegistro] Error enviando correo: ' + mailErr.message);
+    }
+
+    console.log('[confirmRegistro] Registro confirmado exitosamente.');
+    return result;
+
+  } catch (e) {
+    console.error('[confirmRegistro] ERROR: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  ACTUALIZAR REGISTRO PENDIENTE (Corrección de datos)
+// ─────────────────────────────────────────────────────────────────
+
+function updateRegistro(data) {
+  console.log('[updateRegistro] Actualizando registro ID: ' + data.registroId);
+  try {
+    var sheet = _getOrCreateSheet();
+    var rowNum = _findRowById(sheet, data.registroId);
+    if (rowNum === -1) {
+      return { success: false, error: 'Registro no encontrado: ' + data.registroId };
+    }
+
+    var estadoActual = sheet.getRange(rowNum, 16).getValue();
+    if (estadoActual === 'Confirmado') {
+      return { success: false, error: 'No se puede editar un registro ya confirmado.' };
+    }
+
+    var solicitudStr  = (data.solicitud || '').toString().trim();
+    var polizaStr     = (data.poliza || '').toString().trim();
+    var tipoEstudio   = (data.tipoEstudio || '').toString().trim();
+    var filesCount    = parseInt(data.filesCount) || 0;
+    var arrivalDate   = data.fechaHora ? new Date(data.fechaHora) : null;
+    var tipoSolicitud = (data.tipoSolicitud || '').toString().trim();
+
+    // Actualizar campos en la fila
+    sheet.getRange(rowNum, 2).setValue(solicitudStr);        // B: Solicitud
+    sheet.getRange(rowNum, 3).setValue(polizaStr);           // C: Póliza
+    sheet.getRange(rowNum, 4).setValue(tipoEstudio);         // D: Tipo Estudio
+    sheet.getRange(rowNum, 5).setValue(filesCount);          // E: Archivos
+    sheet.getRange(rowNum, 6).setValue(arrivalDate);         // F: Fecha Llegada
+    sheet.getRange(rowNum, 6).setNumberFormat('dd/MM/yyyy HH:mm');
+    sheet.getRange(rowNum, 15).setValue(tipoSolicitud);      // O: Tipo Solicitud
+
+    // Si cambió el número de solicitud, actualizar carpeta y URL
+    var folder = _getOrCreateSolicitudFolder(solicitudStr);
+    var folderUrl = folder.getUrl();
+    sheet.getRange(rowNum, 7).setValue(folderUrl);           // G: URL Carpeta
+
+    var uData = getUserData();
+    var result = {
+      success:    true,
+      id:         data.registroId,
+      rowNumber:  rowNum,
+      userName:   uData.name,
+      userEmail:  uData.email,
+      ts:         Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss'),
+      filesCount: filesCount,
+      folderUrl:  folderUrl,
+    };
+    console.log('[updateRegistro] Registro actualizado: ' + JSON.stringify(result));
+    return result;
+
+  } catch (e) {
+    console.error('[updateRegistro] ERROR: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  LIMPIAR ARCHIVOS DE UNA CARPETA DE SOLICITUD
+// ─────────────────────────────────────────────────────────────────
+
+function clearSolicitudFiles(solicitud) {
+  console.log('[clearSolicitudFiles] Limpiando archivos de solicitud: ' + solicitud);
+  try {
+    var parentFolder = DriveApp.getFolderById(CONFIG.FOLDER_ID);
+    var folderName = 'SOLICITUD -' + solicitud;
+    var iter = parentFolder.searchFolders('title = "' + folderName + '" and trashed = false');
+
+    if (!iter.hasNext()) {
+      return { success: true, deletedCount: 0 };
+    }
+
+    var folder = iter.next();
+    var files = folder.getFiles();
+    var count = 0;
+    while (files.hasNext()) {
+      files.next().setTrashed(true);
+      count++;
+    }
+    console.log('[clearSolicitudFiles] Archivos eliminados: ' + count);
+    return { success: true, deletedCount: count };
+  } catch (e) {
+    console.error('[clearSolicitudFiles] ERROR: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
 // ═════════════════════════════════════════════════════════════════
 //  HELPERS
 // ═════════════════════════════════════════════════════════════════
+
+function _findRowById(sheet, id) {
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      return i + 2; // +2 porque empezamos en fila 2 (después del header)
+    }
+  }
+  return -1;
+}
 
 function _capitalize(str) {
   if (!str) return '';
@@ -455,7 +614,7 @@ function _setupSheetHeaders(sheet) {
   headerRange.setFontColor('#FFFFFF');
   headerRange.setBackground('#253150');
   headerRange.setHorizontalAlignment('center');
-  var widths = [90, 160, 140, 260, 130, 200, 300, 180, 200, 220, 160, 160, 200, 180, 160];
+  var widths = [90, 160, 140, 260, 130, 200, 300, 180, 200, 220, 160, 160, 200, 180, 160, 140];
   widths.forEach(function(w, i) { sheet.setColumnWidth(i + 1, w); });
   sheet.setFrozenRows(1);
 }

@@ -40,6 +40,10 @@ const TIPOS_CON_ANEXO = {
 let selectedFiles = [];
 let selectedTipos = [];
 let userData = { email: '', name: '', initials: '' };
+let pendingRegistro = null;
+let isCorrection = false;
+let originalFilesCount = 0;
+let reviewObjectUrls = [];
 
 // ─── CACHE DOM ─────────────────────────────────────────────────
 const DOM = {};
@@ -82,6 +86,16 @@ function cacheDom() {
   DOM.modalLabel        = document.getElementById('modal-progress-label');
   DOM.modalPct          = document.getElementById('modal-progress-pct');
   DOM.modalBar          = document.getElementById('modal-progress-bar');
+  DOM.reviewScreen      = document.getElementById('review-screen');
+  DOM.reviewMeta        = document.getElementById('review-meta');
+  DOM.reviewFiles       = document.getElementById('review-files');
+  DOM.reviewFilesSection = document.getElementById('review-files-section');
+  DOM.reviewAlertError  = document.getElementById('review-alert-error');
+  DOM.reviewAlertMsg    = document.getElementById('review-alert-msg');
+  DOM.btnCorrect        = document.getElementById('btn-correct');
+  DOM.btnConfirm        = document.getElementById('btn-confirm');
+  DOM.btnConfirmText    = document.getElementById('btn-confirm-text');
+  DOM.confirmSpinner    = document.getElementById('confirm-spinner');
 }
 
 // ─── INICIALIZACIÓN ────────────────────────────────────────────
@@ -155,6 +169,9 @@ function bindEvents() {
       el.addEventListener('change', scheduleDraftSave);
     }
   });
+
+  DOM.btnCorrect.addEventListener('click', handleCorrect);
+  DOM.btnConfirm.addEventListener('click', handleConfirm);
 
   DOM.dropZone.addEventListener('focus', function() {
     var indicator = document.getElementById('paste-indicator');
@@ -552,34 +569,282 @@ function uploadFile(file, solicitud, tipoEstudio, onProgress) {
   });
 }
 
+// ─── PANTALLA DE REVISIÓN ──────────────────────────────────────
+
+function showReviewScreen(result, payload) {
+  console.log('[showReviewScreen] Mostrando pantalla de revisión — ID:', result.id);
+  window.scrollTo(0, 0);
+  DOM.formSection.style.display = 'none';
+  DOM.successScreen.classList.add('hidden');
+  DOM.reviewScreen.classList.remove('hidden');
+  DOM.reviewScreen.classList.add('animate-fade-in-up');
+
+  // Poblar tabla de resumen
+  var folderLink = result.folderUrl
+    ? '<a href="' + result.folderUrl + '" target="_blank" class="text-blue-600 underline hover:text-blue-800">Abrir carpeta</a>'
+    : '—';
+
+  DOM.reviewMeta.innerHTML = [
+    row('ID de Registro',       '#' + result.id),
+    row('N.º de Solicitud', payload.solicitud),
+    row('N.º de Póliza', payload.poliza),
+    row('Tipo de Solicitud',    payload.tipoSolicitud || '—'),
+    row('Tipo de Estudio',      payload.tipoEstudio),
+    row('Archivos adjuntos',    result.filesCount + ' archivo(s)'),
+    row('Carpeta de Solicitud', folderLink),
+    row('Fecha llegada correo', formatDT(payload.fechaHora)),
+    row('Registrado por',       result.userName),
+    row('Email',                result.userEmail),
+    row('Fecha de registro',    result.ts),
+  ].join('');
+
+  renderReviewFiles();
+  hideReviewAlert();
+}
+
+function renderReviewFiles() {
+  revokeReviewUrls();
+  var container = DOM.reviewFiles;
+  container.innerHTML = '';
+
+  if (selectedFiles.length === 0) {
+    DOM.reviewFilesSection.classList.add('hidden');
+    return;
+  }
+
+  DOM.reviewFilesSection.classList.remove('hidden');
+
+  var countEl = document.getElementById('review-files-count');
+  if (countEl) countEl.textContent = selectedFiles.length + ' archivo(s)';
+
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+
+  selectedFiles.forEach(function(file, idx) {
+    var card = document.createElement('div');
+    card.className = 'bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm';
+
+    var isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name) || file.type.indexOf('image') === 0;
+    var isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+    var isWord = /\.(doc|docx)$/i.test(file.name);
+    var isExcel = /\.(xls|xlsx)$/i.test(file.name);
+
+    // Barra de info del archivo
+    var fileNum = selectedFiles.length > 1 ? '<span class="text-slate-400 text-xs font-medium mr-2">' + (idx + 1) + '/' + selectedFiles.length + '</span>' : '';
+    var infoBar = '<div class="px-4 py-3 flex items-center justify-between border-t border-slate-100">' +
+        '<div class="min-w-0 flex-1">' +
+          '<p class="text-sm font-semibold text-slate-700 truncate" title="' + escapeHtml(file.name) + '">' + escapeHtml(file.name) + '</p>' +
+          '<p class="text-xs text-slate-400 font-medium mt-0.5">' + formatFileSize(file.size) + '</p>' +
+        '</div>' +
+        fileNum +
+      '</div>';
+
+    if (isImage) {
+      var objUrl = URL.createObjectURL(file);
+      reviewObjectUrls.push(objUrl);
+      card.innerHTML = '<div class="bg-slate-50 flex items-center justify-center overflow-hidden" style="max-height:500px">' +
+        '<img src="' + objUrl + '" class="w-full object-contain" alt="' + escapeHtml(file.name) + '">' +
+        '</div>' + infoBar;
+      container.appendChild(card);
+    } else if (isPdf) {
+      var pdfContainer = document.createElement('div');
+      pdfContainer.className = 'bg-slate-100 overflow-y-auto space-y-2 p-2';
+      pdfContainer.style.maxHeight = '600px';
+      // Placeholder mientras carga
+      pdfContainer.innerHTML = '<div class="flex items-center justify-center py-16 text-slate-400">' +
+        '<div class="text-center"><div class="w-8 h-8 mx-auto mb-2 border-2 border-slate-300 border-t-brand-red rounded-full animate-spin"></div>' +
+        '<p class="text-xs font-medium">Cargando documento...</p></div></div>';
+      card.appendChild(pdfContainer);
+      card.insertAdjacentHTML('beforeend', infoBar);
+      container.appendChild(card);
+      renderPdfToCanvas(file, pdfContainer);
+    } else {
+      var typeLabel = isWord ? 'WORD' : isExcel ? 'EXCEL' : 'ARCHIVO';
+      var typeColor = isWord ? 'blue' : isExcel ? 'emerald' : 'slate';
+      card.innerHTML = '<div class="h-32 bg-' + typeColor + '-50 flex items-center justify-center">' +
+        '<div class="text-center">' +
+        '<svg class="w-12 h-12 mx-auto text-' + typeColor + '-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>' +
+        '</svg><span class="block text-xs font-bold text-' + typeColor + '-500 mt-2">' + typeLabel + '</span>' +
+        '<p class="text-[10px] text-' + typeColor + '-400 mt-1">Vista previa no disponible</p>' +
+        '</div></div>' + infoBar;
+      container.appendChild(card);
+    }
+  });
+}
+
+function renderPdfToCanvas(file, container) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var typedArray = new Uint8Array(e.target.result);
+    pdfjsLib.getDocument({ data: typedArray }).promise.then(function(pdf) {
+      container.innerHTML = '';
+      var totalPages = pdf.numPages;
+      // Mostrar indicador de páginas
+      var pageInfo = document.createElement('div');
+      pageInfo.className = 'text-center py-1';
+      pageInfo.innerHTML = '<span class="text-[10px] text-slate-400 font-medium">' + totalPages + ' página(s)</span>';
+      container.appendChild(pageInfo);
+
+      for (var p = 1; p <= totalPages; p++) {
+        (function(pageNum) {
+          pdf.getPage(pageNum).then(function(page) {
+            var containerWidth = container.clientWidth - 16;
+            var viewport = page.getViewport({ scale: 1 });
+            var scale = containerWidth / viewport.width;
+            var scaledViewport = page.getViewport({ scale: scale });
+
+            var canvas = document.createElement('canvas');
+            canvas.className = 'mx-auto rounded shadow-sm bg-white';
+            canvas.width = scaledViewport.width;
+            canvas.height = scaledViewport.height;
+            canvas.style.width = '100%';
+            canvas.style.height = 'auto';
+
+            // Insertar en orden de página
+            var canvases = container.querySelectorAll('canvas');
+            if (canvases.length >= pageNum) {
+              container.insertBefore(canvas, canvases[pageNum - 1]);
+            } else {
+              container.appendChild(canvas);
+            }
+
+            page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledViewport });
+          });
+        })(p);
+      }
+    }).catch(function(err) {
+      container.innerHTML = '<div class="flex items-center justify-center py-12 text-red-400">' +
+        '<div class="text-center"><svg class="w-10 h-10 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>' +
+        '</svg><p class="text-xs font-medium mt-2">No se pudo cargar el PDF</p></div></div>';
+      console.error('[renderPdfToCanvas] Error:', err);
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function revokeReviewUrls() {
+  reviewObjectUrls.forEach(function(url) { URL.revokeObjectURL(url); });
+  reviewObjectUrls = [];
+}
+
+function handleCorrect() {
+  console.log('[handleCorrect] Volviendo al formulario para corrección');
+  window.scrollTo(0, 0);
+  DOM.reviewScreen.classList.add('hidden');
+  DOM.reviewScreen.classList.remove('animate-fade-in-up');
+  DOM.formSection.style.display = '';
+  revokeReviewUrls();
+  hideReviewAlert();
+
+  if (pendingRegistro && pendingRegistro.payload) {
+    var p = pendingRegistro.payload;
+    document.getElementById('solicitud').value = p.solicitud || '';
+    document.getElementById('poliza').value = p.poliza || '';
+    document.getElementById('tipo-solicitud').value = p.tipoSolicitud || '';
+    document.getElementById('fecha-hora').value = p.fechaHora || '';
+
+    // Restaurar checkboxes
+    var tiposArr = (p.tipoEstudio || '').split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
+    var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]');
+    checkboxes.forEach(function(cb) {
+      cb.checked = tiposArr.indexOf(cb.value) !== -1;
+    });
+    handleTipoChange();
+  }
+
+  renderFileList();
+  isCorrection = true;
+}
+
+function handleConfirm() {
+  console.log('[handleConfirm] Confirmando registro ID:', pendingRegistro ? pendingRegistro.id : 'N/A');
+  if (!pendingRegistro) return;
+
+  setConfirmLoading(true);
+  hideReviewAlert();
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      setConfirmLoading(false);
+      if (result && result.success) {
+        revokeReviewUrls();
+        DOM.reviewScreen.classList.add('hidden');
+        DOM.reviewScreen.classList.remove('animate-fade-in-up');
+        showSuccess(result, pendingRegistro.payload);
+        pendingRegistro = null;
+        isCorrection = false;
+      } else {
+        showReviewAlert((result && result.error) || 'Error al confirmar.');
+      }
+    })
+    .withFailureHandler(function(err) {
+      setConfirmLoading(false);
+      showReviewAlert('Error: ' + (err.message || err));
+    })
+    .confirmRegistro(pendingRegistro.id);
+}
+
+function setConfirmLoading(on) {
+  DOM.btnConfirm.disabled = on;
+  DOM.btnCorrect.disabled = on;
+  DOM.confirmSpinner.classList.toggle('hidden', !on);
+  DOM.confirmSpinner.classList.toggle('inline-block', on);
+  DOM.btnConfirmText.textContent = on ? 'Confirmando...' : 'Confirmar y Enviar a Asignación';
+}
+
+function showReviewAlert(msg) {
+  DOM.reviewAlertMsg.textContent = msg;
+  DOM.reviewAlertError.classList.remove('hidden');
+  DOM.reviewAlertError.classList.add('flex');
+}
+
+function hideReviewAlert() {
+  DOM.reviewAlertError.classList.add('hidden');
+  DOM.reviewAlertError.classList.remove('flex');
+}
+
 // ─── ENVÍO DEL FORMULARIO ──────────────────────────────────────
 async function handleSubmit(e) {
   e.preventDefault();
-  console.log('[handleSubmit] Formulario enviado — iniciando validación');
+  console.log('[handleSubmit] Formulario enviado — modo corrección:', isCorrection);
 
   if (!validate()) return;
 
   setLoading(true);
   hideAlert();
 
-    var solicitud    = document.getElementById('solicitud').value.trim();
-    var poliza       = document.getElementById('poliza').value.trim();
-    var tiposEstudio = getSelectedTipos();
-    var tipoEstudio  = tiposEstudio.join(', ');
-    var fechaHora    = document.getElementById('fecha-hora').value;
+  var solicitud      = document.getElementById('solicitud').value.trim();
+  var poliza         = document.getElementById('poliza').value.trim();
+  var tiposEstudio   = getSelectedTipos();
+  var tipoEstudio    = tiposEstudio.join(', ');
+  var fechaHora      = document.getElementById('fecha-hora').value;
+  var tipoSolicitud  = document.getElementById('tipo-solicitud').value;
 
-    console.log('[handleSubmit] Datos del formulario:', JSON.stringify({ solicitud: solicitud, poliza: poliza, tipoEstudio: tipoEstudio, fechaHora: fechaHora, archivos: selectedFiles.length }));
+  console.log('[handleSubmit] Datos del formulario:', JSON.stringify({ solicitud: solicitud, poliza: poliza, tipoEstudio: tipoEstudio, fechaHora: fechaHora, archivos: selectedFiles.length, isCorrection: isCorrection }));
 
   try {
     var filesCount = selectedFiles.length;
+    var filesChanged = isCorrection && (filesCount !== originalFilesCount);
 
-    // 1. Subir archivos (si hay)
-    if (filesCount > 0) {
+    if (isCorrection && filesChanged && pendingRegistro) {
+      // Limpiar archivos anteriores antes de re-subir
+      var prevSolicitud = pendingRegistro.payload.solicitud;
+      await new Promise(function(resolve, reject) {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject)
+          .clearSolicitudFiles(prevSolicitud);
+      });
+    }
+
+    // Subir archivos si es nuevo registro o si los archivos cambiaron
+    if (filesCount > 0 && (!isCorrection || filesChanged)) {
       showUploadProgress(true);
       for (var i = 0; i < filesCount; i++) {
         updateUploadLabel('Subiendo ' + (i + 1) + ' de ' + filesCount + ': ' + selectedFiles[i].name);
-        
-        // CORRECCIÓN 4: Pasar tipoEstudio (que ahora sí existe) para evitar error
         await uploadFile(selectedFiles[i], solicitud, tipoEstudio, function() {
           var pct = Math.round(((i + 1) / filesCount) * 100);
           updateUploadBar(pct);
@@ -589,30 +854,46 @@ async function handleSubmit(e) {
       updateUploadBar(100);
     }
 
-      // 2. Registrar en el Sheet
-      var payload = {
-        solicitud:   solicitud,
-        poliza:      poliza,
-        tipoEstudio: tipoEstudio,
-        fechaHora:   fechaHora,
-        filesCount:  filesCount,
-      };
+    var payload = {
+      solicitud:     solicitud,
+      poliza:        poliza,
+      tipoEstudio:   tipoEstudio,
+      tipoSolicitud: tipoSolicitud,
+      fechaHora:     fechaHora,
+      filesCount:    filesCount,
+    };
 
-      // LOG CRÍTICO: Datos antes de llamar a submitFormData
-      console.log('[handleSubmit] Antes de google.script.run.submitFormData —', JSON.stringify(payload));
-
-    var result = await new Promise(function(resolve, reject) {
-      google.script.run
-        .withSuccessHandler(resolve)
-        .withFailureHandler(reject)
-        .submitFormData(payload);
-    });
+    var result;
+    if (isCorrection && pendingRegistro) {
+      // Modo corrección: actualizar registro existente
+      payload.registroId = pendingRegistro.id;
+      console.log('[handleSubmit] Actualizando registro existente:', JSON.stringify(payload));
+      result = await new Promise(function(resolve, reject) {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject)
+          .updateRegistro(payload);
+      });
+    } else {
+      // Modo nuevo: crear registro pendiente
+      console.log('[handleSubmit] Creando nuevo registro:', JSON.stringify(payload));
+      result = await new Promise(function(resolve, reject) {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject)
+          .submitFormData(payload);
+      });
+    }
 
     setLoading(false);
     showUploadProgress(false);
 
     if (result.success) {
-      showSuccess(result, payload);
+      pendingRegistro = { id: result.id, result: result, payload: payload };
+      originalFilesCount = filesCount;
+      isCorrection = false;
+      clearDraft();
+      showReviewScreen(result, payload);
     } else {
       showAlert(result.error || 'Error desconocido.');
     }
@@ -649,7 +930,7 @@ function showUploadProgress(show) {
     DOM.uploadModal.classList.remove('hidden');
     var firstName = (userData.name || 'Usuario').split(' ')[0];
     DOM.modalTitle.textContent = firstName + ', estamos procesando tu solicitud';
-    DOM.modalMessage.textContent = 'Tus documentos se están siendo asignados. Solo tomará unos segundos, gracias por tu paciencia.';
+    DOM.modalMessage.textContent = 'Tus documentos se están siendo registrados. Solo tomará unos segundos, gracias por tu paciencia.';
     DOM.modalLabel.textContent = 'Preparando...';
     DOM.modalPct.textContent = '0%';
     DOM.modalBar.style.width = '0%';
@@ -675,6 +956,7 @@ function updateUploadLabel(text) {
 // ─── PANTALLA DE ÉXITO ─────────────────────────────────────────
 function showSuccess(result, payload) {
   console.log('[showSuccess] Mostrando pantalla de éxito — ID:', result.id);
+  window.scrollTo(0, 0);
   clearDraft();
   DOM.formSection.style.display = 'none';
   DOM.successScreen.classList.remove('hidden');
@@ -682,7 +964,7 @@ function showSuccess(result, payload) {
   
   var firstName = (userData.name || 'Usuario').split(' ')[0];
   DOM.successTitle.textContent = '¡Excelente trabajo, ' + firstName + '!';
-  DOM.successSubtitle.textContent = 'La solicitud fue guardada correctamente en el sistema.';
+  DOM.successSubtitle.textContent = 'La solicitud fue confirmada y enviada a asignación.';
   
   var folderLink = result.folderUrl
     ? '<a href="' + result.folderUrl + '" target="_blank" class="text-blue-600 underline hover:text-blue-800">Abrir carpeta</a>'
@@ -718,13 +1000,20 @@ function formatDT(dt) {
 // ─── RESET ─────────────────────────────────────────────────────
 function reset() {
   console.log('[App.reset] Reiniciando formulario');
+  window.scrollTo(0, 0);
   clearDraft();
   DOM.form.reset();
   selectedTipos = [];
+  pendingRegistro = null;
+  isCorrection = false;
+  originalFilesCount = 0;
+  revokeReviewUrls();
   DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]').forEach(function(cb) { cb.checked = false; });
   DOM.formSection.style.display = '';
   DOM.successScreen.classList.add('hidden');
   DOM.successScreen.classList.remove('animate-fade-in-up');
+  DOM.reviewScreen.classList.add('hidden');
+  DOM.reviewScreen.classList.remove('animate-fade-in-up');
   DOM.anexoSection.classList.add('hidden');
   DOM.hintSi.classList.add('hidden');
   DOM.hintSi.classList.remove('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
@@ -732,9 +1021,9 @@ function reset() {
   DOM.hintNo.classList.remove('bg-amber-50', 'border-amber-200', 'text-amber-700', 'flex');
   clearFiles();
   hideAlert();
+  hideReviewAlert();
   showUploadProgress(false);
   DOM.uploadModal.classList.add('hidden');
-  // Limpiar búsqueda de tipos
   if (DOM.tipoSearch) DOM.tipoSearch.value = '';
   if (DOM.tipoSearchClear) DOM.tipoSearchClear.classList.add('hidden');
   if (DOM.tipoSearchCount) DOM.tipoSearchCount.classList.add('hidden');
