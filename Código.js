@@ -403,6 +403,8 @@ function confirmRegistro(registroId) {
       claseDeSolicitud = "Nueva";
     } else if (tiposArray.indexOf("Deudor UAR") !== -1) {
       claseDeSolicitud = "Adicional";
+    } else if (tiposArray.indexOf("Biometría Fallida") !== -1) {
+      claseDeSolicitud = "Biometría Fallida";
     }
 
     // Escribir en ORIGEN
