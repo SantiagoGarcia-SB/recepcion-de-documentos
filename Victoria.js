@@ -77,12 +77,27 @@ function respaldarDocumentosInfobip() {
 
     // Validar número de solicitud (no vacío, sin letras)
     var nroStr = nroSolicitud ? nroSolicitud.toString().trim() : '';
+
+    // Si vienen múltiples números (separados por salto de línea, coma o espacio),
+    // tomar solo el primero y anotar los demás en observaciones
+    var numerosMultiples = nroStr.split(/[\n\r,;]+/).map(function(n) { return n.trim(); }).filter(function(n) { return n !== ''; });
+    var obsMultiple = '';
+    if (numerosMultiples.length > 1) {
+      nroStr = numerosMultiples[0];
+      obsMultiple = 'Números adicionales recibidos: ' + numerosMultiples.slice(1).join(', ');
+    }
+
     var esInvalido = nroStr === '' || /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(nroStr);
 
     if (esInvalido) {
       hoja.getRange(i + 2, COL_OBSERVACIONES_VICTORIA).setValue('Número de solicitud invalido');
       errores++;
       continue;
+    }
+
+    // Si había múltiples números, registrar en observaciones
+    if (obsMultiple) {
+      hoja.getRange(i + 2, COL_OBSERVACIONES_VICTORIA).setValue(obsMultiple);
     }
 
     // Formatear fecha
@@ -114,8 +129,8 @@ function respaldarDocumentosInfobip() {
           nroStr,              // 2. solicitud
           urlCarpeta,          // 3. linkDrive
           'VICTORIA',          // 4. origen
-          'Anexo',             // 5. tipoDeProceso
-          'Reestudio',         // 6. claseDeSolicitud
+          'Reestudio',         // 5. tipoDeProceso
+          'Anexo',             // 6. claseDeSolicitud
           '',                  // 7. analistaAsignado
           '',                  // 8. nombreAnalista
           '',                  // 9. fechaAsignacion
