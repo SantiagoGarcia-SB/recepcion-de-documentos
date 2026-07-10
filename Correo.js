@@ -24,6 +24,7 @@ const TIPOS_ESTUDIO = {
   'Actualizar Resultado':                     true,
   'Ampliación Canon':                         true,
   'Anular Estudio':                           true,
+  'Asegurada':                                true,
   'AVS Cerrada Por 85':                       false,
   'AVS Re Asignado':                          false,
   'AVS Traslado Cerrada Por 86':              false,
@@ -59,12 +60,9 @@ const HEADERS = [
   'Fecha y Hora de Registro',
   'Registrado Por (Nombre)',
   'Email Registrador',
-  'Nombre Evaluador',
-  'Estado Evaluación',
-  'Motivo Devolución',
-  'Notificacion Gmail Chat',
   'Tipo de solicitud',
   'Estado Registro',
+  'Comentarios',
 ];
 
 // ═════════════════════════════════════════════════════════════════
@@ -111,8 +109,27 @@ function getTiposEstudio() {
 // ─────────────────────────────────────────────────────────────────
 
 /**
+ * Pre-resuelve (busca o crea) la carpeta de la solicitud y retorna su ID.
+ * Se llama UNA sola vez desde el frontend antes de los uploads.
+ * @param {string} solicitud - Número de solicitud
+ * @returns {{success: boolean, folderId: string}}
+ */
+function getOrCreateFolderId(solicitud) {
+  console.log('[getOrCreateFolderId] Resolviendo carpeta para solicitud: ' + solicitud);
+  try {
+    var folder = _getOrCreateSolicitudFolder(String(solicitud).trim());
+    var folderId = folder.getId();
+    console.log('[getOrCreateFolderId] Carpeta resuelta — folderId: ' + folderId);
+    return { success: true, folderId: folderId };
+  } catch (e) {
+    console.error('[getOrCreateFolderId] ERROR — message: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
  * Sube un archivo completo (para archivos <= 30 MB aprox).
- * @param {Object} params - { base64, fileName, fileType, solicitud, tipoEstudio }
+ * @param {Object} params - { base64, fileName, fileType, solicitud, tipoEstudio, folderId (opcional) }
  * @returns {{success: boolean}}
  */
 function uploadSingleFile(params) {
@@ -121,11 +138,19 @@ function uploadSingleFile(params) {
     fileType: params.fileType,
     solicitud: params.solicitud,
     tipoEstudio: params.tipoEstudio,
+    folderId: params.folderId || 'NO_PROPORCIONADO',
     base64Length: params.base64 ? params.base64.length : 0
   }));
 
   try {
-    var folder = _getOrCreateSolicitudFolder(params.solicitud);
+    // Si se proporcionó folderId, usar directo sin buscar
+    var folder;
+    if (params.folderId) {
+      folder = DriveApp.getFolderById(params.folderId);
+    } else {
+      folder = _getOrCreateSolicitudFolder(params.solicitud);
+    }
+
     var now = new Date();
     
     // ✅ UNIFORMIDAD ABSOLUTA: Formato "Solicitud_{nro}_{fechaFormateada}"
@@ -213,7 +238,7 @@ function appendChunkToTemp(params) {
 
 /**
  * Finaliza el upload: lee el temp, decodifica, crea archivo final, borra temp.
- * @param {Object} params - { tempFileId, fileName, fileType, solicitud, tipoEstudio }
+ * @param {Object} params - { tempFileId, fileName, fileType, solicitud, tipoEstudio, folderId (opcional) }
  * @returns {{success: boolean}}
  */
 function finalizeUpload(params) {
@@ -222,14 +247,20 @@ function finalizeUpload(params) {
     fileName: params.fileName,
     fileType: params.fileType,
     solicitud: params.solicitud,
-    tipoEstudio: params.tipoEstudio
+    tipoEstudio: params.tipoEstudio,
+    folderId: params.folderId || 'NO_PROPORCIONADO'
   }));
   try {
     var tempFile = DriveApp.getFileById(params.tempFileId);
     var fullBase64 = tempFile.getBlob().getDataAsString();
     console.log('[finalizeUpload] Base64 leído del temp — longitud: ' + fullBase64.length);
     
-    var folder = _getOrCreateSolicitudFolder(params.solicitud);
+    var folder;
+    if (params.folderId) {
+      folder = DriveApp.getFolderById(params.folderId);
+    } else {
+      folder = _getOrCreateSolicitudFolder(params.solicitud);
+    }
     var now = new Date();
     
     // ✅ UNIFORMIDAD ABSOLUTA: Formato "Solicitud_{nro}_{fechaFormateada}"
@@ -296,7 +327,12 @@ function submitFormData(data) {
     var now      = new Date();
 
     var solicitudStr = (data.solicitud || '').toString().trim();
-    var folder       = _getOrCreateSolicitudFolder(solicitudStr);
+    var folder;
+    if (data.folderId) {
+      folder = DriveApp.getFolderById(data.folderId);
+    } else {
+      folder = _getOrCreateSolicitudFolder(solicitudStr);
+    }
     var folderUrl    = folder.getUrl();
     var arrivalDate  = data.fechaHora ? new Date(data.fechaHora) : null;
 
@@ -311,12 +347,9 @@ function submitFormData(data) {
       now,
       uData.name,
       uData.email,
-      '',  // Nombre Evaluador
-      '',  // Estado Evaluación
-      '',  // Motivo Devolución
-      '',  // Notificacion Gmail Chat
       (data.tipoSolicitud || '').toString().trim(),
       'Pendiente',
+      (data.comentarios || '').toString().trim(),
     ];
 
     console.log('[submitFormData] Antes de sheet.appendRow — ' + JSON.stringify({
@@ -361,42 +394,69 @@ function submitFormData(data) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  CONFIRMAR REGISTRO (Fase 2: escribe en ORIGEN + envía correo)
+//  CONFIRMAR REGISTRO (Escribe en Sheet + ORIGEN + envía correo)
 // ─────────────────────────────────────────────────────────────────
 
-function confirmRegistro(registroId) {
-  console.log('[confirmRegistro] Confirmando registro ID: ' + registroId);
+function confirmRegistro(data) {
+  console.log('[confirmRegistro] Confirmando registro con datos: ' + JSON.stringify({
+    solicitud: data.solicitud,
+    poliza: data.poliza,
+    tipoEstudio: data.tipoEstudio,
+    filesCount: data.filesCount
+  }));
+
   try {
-    var sheet = _getOrCreateSheet();
-    var rowNum = _findRowById(sheet, registroId);
-    if (rowNum === -1) {
-      return { success: false, error: 'Registro no encontrado: ' + registroId };
-    }
-
-    var rowData = sheet.getRange(rowNum, 1, 1, HEADERS.length).getValues()[0];
-    var estadoActual = rowData[15]; // columna P = Estado Registro
-    if (estadoActual === 'Confirmado') {
-      return { success: false, error: 'Este registro ya fue confirmado.' };
-    }
-
-    // Actualizar estado a Confirmado
-    sheet.getRange(rowNum, 16).setValue('Confirmado');
-
-    // Leer datos de la fila
-    var solicitudStr = String(rowData[1]);
-    var polizaStr    = String(rowData[2]);
-    var tipoEstudio  = String(rowData[3]);
-    var filesCount   = parseInt(rowData[4]) || 0;
-    var arrivalDate  = rowData[5] instanceof Date ? rowData[5] : (rowData[5] ? new Date(rowData[5]) : null);
-    var folderUrl    = String(rowData[6]);
-    var registroDate = rowData[7];
-    var userName     = String(rowData[8]);
-    var userEmail    = String(rowData[9]);
-    var tipoSolicitud = String(rowData[14]);
-
+    var tipoEstudio = (data.tipoEstudio || '').toString().trim();
     var tiposArray = tipoEstudio.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
 
-    // Lógica de negocio para consolidador
+    if (tiposArray.length === 0) {
+      return { success: false, error: 'Debes seleccionar al menos un tipo de estudio.' };
+    }
+
+    var sheet    = _getOrCreateSheet();
+    var nextId   = _getNextId(sheet);
+    var uData    = getUserData();
+    var now      = new Date();
+
+    var solicitudStr  = (data.solicitud || '').toString().trim();
+    var polizaStr     = (data.poliza || '').toString().trim();
+    var filesCount    = parseInt(data.filesCount) || 0;
+    var arrivalDate   = data.fechaHora ? new Date(data.fechaHora) : null;
+    var tipoSolicitud = (data.tipoSolicitud || '').toString().trim();
+    var comentarios   = (data.comentarios || '').toString().trim();
+
+    // Resolver carpeta
+    var folder;
+    if (data.folderId) {
+      folder = DriveApp.getFolderById(data.folderId);
+    } else {
+      folder = _getOrCreateSolicitudFolder(solicitudStr);
+    }
+    var folderUrl = folder.getUrl();
+
+    // 1. Escribir en Sheet Principal (directamente como Confirmado)
+    var rowData = [
+      nextId,
+      solicitudStr,
+      polizaStr,
+      tipoEstudio,
+      filesCount,
+      arrivalDate,
+      folderUrl,
+      now,
+      uData.name,
+      uData.email,
+      tipoSolicitud,
+      'Confirmado',
+      comentarios,
+    ];
+
+    sheet.appendRow(rowData);
+    var lastRow = sheet.getLastRow();
+    sheet.getRange(lastRow, 6).setNumberFormat('dd/MM/yyyy HH:mm');
+    sheet.getRange(lastRow, 8).setNumberFormat('dd/MM/yyyy HH:mm:ss');
+
+    // 2. Lógica de negocio para consolidador
     var claseDeSolicitud = "Reestudio";
     var tipoDeProceso = "Anexo";
     if (tiposArray.indexOf("Nueva UAR") !== -1) {
@@ -406,36 +466,57 @@ function confirmRegistro(registroId) {
     } else if (tiposArray.indexOf("Biometría Fallida") !== -1) {
       claseDeSolicitud = "Biometría Fallida";
     }
+    if (tiposArray.indexOf("Asegurada") !== -1) {
+      tipoDeProceso = "Asegurada";
+    }
 
-    // Escribir en ORIGEN
+    // 3. Escribir en ORIGEN
     try {
       var destSs = SpreadsheetApp.openById(ID_SHEET_DESTINO);
       var destSheet = destSs.getSheetByName(NOMBRE_HOJA_DESTINO) || destSs.getSheets()[0];
-      destSheet.appendRow([arrivalDate || new Date(), solicitudStr, folderUrl, "CORREO", claseDeSolicitud, tipoDeProceso]);
+      destSheet.appendRow([
+        arrivalDate || new Date(),  // 1. fechaRadicacion
+        solicitudStr,               // 2. solicitud
+        folderUrl,                  // 3. linkDrive
+        "CORREO",                   // 4. origen
+        tipoDeProceso,              // 5. tipoDeProceso
+        claseDeSolicitud,           // 6. claseDeSolicitud
+        '',                         // 7. analistaAsignado
+        '',                         // 8. nombreAnalista
+        '',                         // 9. fechaAsignacion
+        '',                         // 10. fechaFinGestion
+        '',                         // 11. estadoGestion
+        '',                         // 12. motivoAplazamiento
+        '',                         // 13. motivoNegacion
+        comentarios,                // 14. observaciones
+        '',                         // 15. minutos_cola
+        '',                         // 16. minutos_gestion
+        '',                         // 17. minutos_general
+        polizaStr,                  // 18. poliza
+      ]);
       console.log('[confirmRegistro] Registro agregado a hoja de consolidado.');
     } catch (destErr) {
       console.error('[confirmRegistro] Error al guardar en hoja destino: ' + destErr.message);
     }
 
-    // Enviar correo de confirmación
+    // 4. Enviar correo de confirmación
     var result = {
       success:    true,
-      id:         registroId,
-      userName:   userName,
-      userEmail:  userEmail,
-      ts:         registroDate instanceof Date
-        ? Utilities.formatDate(registroDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss')
-        : String(registroDate),
+      id:         nextId,
+      userName:   uData.name,
+      userEmail:  uData.email,
+      ts:         Utilities.formatDate(now, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss'),
       filesCount: filesCount,
       folderUrl:  folderUrl,
     };
 
     try {
-      _sendConfirmationEmail(userEmail, result, {
+      _sendConfirmationEmail(uData.email, result, {
         solicitud:      solicitudStr,
         poliza:         polizaStr,
         tipoEstudio:    tipoEstudio,
         filesCount:     filesCount,
+        comentarios:    comentarios,
         arrivalDateStr: arrivalDate
           ? Utilities.formatDate(arrivalDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
           : '—',
@@ -444,7 +525,7 @@ function confirmRegistro(registroId) {
       console.error('[confirmRegistro] Error enviando correo: ' + mailErr.message);
     }
 
-    console.log('[confirmRegistro] Registro confirmado exitosamente.');
+    console.log('[confirmRegistro] Registro confirmado exitosamente — ID: ' + nextId);
     return result;
 
   } catch (e) {
@@ -466,7 +547,7 @@ function updateRegistro(data) {
       return { success: false, error: 'Registro no encontrado: ' + data.registroId };
     }
 
-    var estadoActual = sheet.getRange(rowNum, 16).getValue();
+    var estadoActual = sheet.getRange(rowNum, 12).getValue();
     if (estadoActual === 'Confirmado') {
       return { success: false, error: 'No se puede editar un registro ya confirmado.' };
     }
@@ -485,7 +566,8 @@ function updateRegistro(data) {
     sheet.getRange(rowNum, 5).setValue(filesCount);          // E: Archivos
     sheet.getRange(rowNum, 6).setValue(arrivalDate);         // F: Fecha Llegada
     sheet.getRange(rowNum, 6).setNumberFormat('dd/MM/yyyy HH:mm');
-    sheet.getRange(rowNum, 15).setValue(tipoSolicitud);      // O: Tipo Solicitud
+    sheet.getRange(rowNum, 11).setValue(tipoSolicitud);      // K: Tipo Solicitud
+    sheet.getRange(rowNum, 13).setValue((data.comentarios || '').toString().trim()); // M: Comentarios
 
     // Si cambió el número de solicitud, actualizar carpeta y URL
     var folder = _getOrCreateSolicitudFolder(solicitudStr);
@@ -547,11 +629,9 @@ function clearSolicitudFiles(solicitud) {
 // ═════════════════════════════════════════════════════════════════
 
 function _findRowById(sheet, id) {
-  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
-  for (var i = 0; i < data.length; i++) {
-    if (String(data[i][0]) === String(id)) {
-      return i + 2; // +2 porque empezamos en fila 2 (después del header)
-    }
+  var finder = sheet.getRange('A:A').createTextFinder(String(id)).matchEntireCell(true).findNext();
+  if (finder) {
+    return finder.getRow();
   }
   return -1;
 }
@@ -616,7 +696,7 @@ function _setupSheetHeaders(sheet) {
   headerRange.setFontColor('#FFFFFF');
   headerRange.setBackground('#253150');
   headerRange.setHorizontalAlignment('center');
-  var widths = [90, 160, 140, 260, 130, 200, 300, 180, 200, 220, 160, 160, 200, 180, 160, 140];
+  var widths = [90, 160, 140, 260, 130, 200, 300, 180, 200, 220, 160, 140, 250];
   widths.forEach(function(w, i) { sheet.setColumnWidth(i + 1, w); });
   sheet.setFrozenRows(1);
 }
@@ -660,6 +740,10 @@ function _sendConfirmationEmail(toEmail, result, payload, tiposArray) {
     ['Email',                   result.userEmail],
     ['Fecha de registro',       result.ts],
   ];
+
+  if (payload.comentarios) {
+    rows.push(['Comentarios', payload.comentarios]);
+  }
 
   var rowsHtml = rows.map(function(r) {
     return '<tr>' +
@@ -744,6 +828,6 @@ function _sendConfirmationEmail(toEmail, result, payload, tiposArray) {
 
   var subject = '✅ Solicitud ' + payload.solicitud + ' registrada para asignación';
 
-  MailApp.sendEmail({ to: toEmail, subject: subject, htmlBody: html, name: 'Radicación · El Libertador' });
+  MailApp.sendEmail({ to: toEmail, subject: subject, htmlBody: html, name: 'Radicación · El Libertador', from: 'noreply@ellibertador.co' });
   console.log('[_sendConfirmationEmail] Correo enviado a: ' + toEmail);
 }

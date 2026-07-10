@@ -12,6 +12,7 @@ const TIPOS_CON_ANEXO = {
   'Actualizar Resultado':                     true,
   'Ampliación Canon':                         true,
   'Anular Estudio':                           true,
+  'Asegurada':                                true,
   'AVS Cerrada Por 85':                       false,
   'AVS Re Asignado':                          false,
   'AVS Traslado Cerrada Por 86':              false,
@@ -105,8 +106,13 @@ function init() {
   populateCheckboxes();
   bindEvents();
   bindSearchEvents();
+  bindRealtimeValidation();
+  bindKeyboardShortcuts();
+  bindSmartScroll();
   loadUser();
   restoreDraft();
+  // Auto-focus al primer campo
+  setTimeout(function() { document.getElementById('solicitud').focus(); }, 300);
 }
 
 function populateCheckboxes() {
@@ -161,14 +167,34 @@ function bindEvents() {
   DOM.form.addEventListener('submit', handleSubmit);
   document.addEventListener('paste', handlePaste);
 
+  // Enter/Space en drop-zone abre el selector de archivos
+  DOM.dropZone.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      DOM.fileInput.click();
+    }
+  });
+
+  // Toggle Tipo de Solicitud
+  bindTipoSolicitudToggle();
+
   // Autoguardado: escuchar cambios en campos del formulario
-  ['solicitud', 'poliza', 'fecha-hora', 'tipo-solicitud'].forEach(function(id) {
+  ['solicitud', 'poliza', 'fecha-hora', 'comentarios'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {
       el.addEventListener('input', scheduleDraftSave);
       el.addEventListener('change', scheduleDraftSave);
     }
   });
+
+  // Contador de caracteres para comentarios
+  var comentariosEl = document.getElementById('comentarios');
+  var comentariosCount = document.getElementById('comentarios-count');
+  if (comentariosEl && comentariosCount) {
+    comentariosEl.addEventListener('input', function() {
+      comentariosCount.textContent = this.value.length;
+    });
+  }
 
   DOM.btnCorrect.addEventListener('click', handleCorrect);
   DOM.btnConfirm.addEventListener('click', handleConfirm);
@@ -190,6 +216,58 @@ function bindEvents() {
   });
 }
 
+// ─── TOGGLE TIPO DE SOLICITUD ──────────────────────────────────
+function bindTipoSolicitudToggle() {
+  var toggleContainer = document.getElementById('tipo-solicitud-toggle');
+  var hiddenInput = document.getElementById('tipo-solicitud');
+  var buttons = toggleContainer.querySelectorAll('button');
+
+  buttons.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      // Deseleccionar todos
+      buttons.forEach(function(b) {
+        b.classList.remove('border-brand-red', 'bg-brand-red/5', 'text-brand-red');
+        b.classList.add('border-slate-200', 'bg-slate-50/50', 'text-slate-600');
+      });
+      // Seleccionar el clickeado
+      this.classList.remove('border-slate-200', 'bg-slate-50/50', 'text-slate-600');
+      this.classList.add('border-brand-red', 'bg-brand-red/5', 'text-brand-red');
+      hiddenInput.value = this.getAttribute('data-value');
+      clearError('err-tipo-solicitud');
+      scheduleDraftSave();
+      // Mover foco al siguiente campo
+      setTimeout(function() {
+        document.getElementById('tipo-estudio-search').focus();
+      }, 50);
+    });
+
+    // Enter/Space también debe avanzar
+    btn.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.click();
+      }
+    });
+  });
+}
+
+function setTipoSolicitudValue(value) {
+  var toggleContainer = document.getElementById('tipo-solicitud-toggle');
+  var hiddenInput = document.getElementById('tipo-solicitud');
+  var buttons = toggleContainer.querySelectorAll('button');
+
+  hiddenInput.value = value || '';
+  buttons.forEach(function(btn) {
+    if (btn.getAttribute('data-value') === value) {
+      btn.classList.remove('border-slate-200', 'bg-slate-50/50', 'text-slate-600');
+      btn.classList.add('border-brand-red', 'bg-brand-red/5', 'text-brand-red');
+    } else {
+      btn.classList.remove('border-brand-red', 'bg-brand-red/5', 'text-brand-red');
+      btn.classList.add('border-slate-200', 'bg-slate-50/50', 'text-slate-600');
+    }
+  });
+}
+
 function getSelectedTipos() {
   var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]:checked');
   return Array.from(checkboxes).map(function(cb) { return cb.value; });
@@ -199,6 +277,27 @@ function getSelectedTipos() {
 function bindSearchEvents() {
   DOM.tipoSearch.addEventListener('input', handleTipoSearch);
   DOM.tipoSearchClear.addEventListener('click', clearTipoSearch);
+
+  // Enter en buscador: si queda un solo resultado visible, marcarlo/desmarcarlo
+  DOM.tipoSearch.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      var labels = DOM.tipoEstudioContainer.querySelectorAll('label');
+      var visibles = [];
+      labels.forEach(function(label) {
+        if (label.style.display !== 'none') visibles.push(label);
+      });
+      if (visibles.length === 1) {
+        var cb = visibles[0].querySelector('input[type="checkbox"]');
+        cb.checked = !cb.checked;
+        handleTipoChange();
+        // Limpiar búsqueda para la siguiente selección rápida
+        DOM.tipoSearch.value = '';
+        handleTipoSearch();
+        DOM.tipoSearch.focus();
+      }
+    }
+  });
 }
 
 function handleTipoSearch() {
@@ -235,6 +334,145 @@ function clearTipoSearch() {
   DOM.tipoSearch.focus();
 }
 
+// ─── VALIDACIÓN EN TIEMPO REAL (blur) ─────────────────────────
+function bindRealtimeValidation() {
+  var solicitudEl = document.getElementById('solicitud');
+  var polizaEl = document.getElementById('poliza');
+  var fechaEl = document.getElementById('fecha-hora');
+  var tipoSolEl = document.getElementById('tipo-solicitud');
+
+  solicitudEl.addEventListener('blur', function() {
+    if (!this.value.trim()) { showFieldError('err-solicitud'); } else { clearError('err-solicitud'); }
+  });
+  solicitudEl.addEventListener('input', function() {
+    if (this.value.trim()) clearError('err-solicitud');
+  });
+
+  polizaEl.addEventListener('blur', function() {
+    if (!this.value.trim()) { showFieldError('err-poliza'); } else { clearError('err-poliza'); }
+  });
+  polizaEl.addEventListener('input', function() {
+    if (this.value.trim()) clearError('err-poliza');
+  });
+
+  fechaEl.addEventListener('blur', function() {
+    if (!this.value) { showFieldError('err-fecha'); } else { clearError('err-fecha'); }
+  });
+  fechaEl.addEventListener('change', function() {
+    if (this.value) clearError('err-fecha');
+  });
+
+  tipoSolEl.addEventListener('change', function() {
+    if (this.value) { clearError('err-tipo-solicitud'); } else { showFieldError('err-tipo-solicitud'); }
+  });
+}
+
+// ─── SCROLL INTELIGENTE (acompaña al usuario) ─────────────────
+function bindSmartScroll() {
+  var fields = [
+    { id: 'solicitud', next: 'poliza' },
+    { id: 'poliza', next: 'tipo-solicitud-toggle' },
+  ];
+
+  // Al hacer Tab/salir de solicitud o póliza, scroll suave al siguiente
+  fields.forEach(function(f) {
+    var el = document.getElementById(f.id);
+    if (el) {
+      el.addEventListener('blur', function() {
+        if (this.value.trim()) {
+          scrollToElement(f.next);
+        }
+      });
+    }
+  });
+
+  // Al seleccionar tipo de solicitud (toggle), scroll al buscador de tipo estudio
+  var toggleBtns = document.querySelectorAll('#tipo-solicitud-toggle button');
+  toggleBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      setTimeout(function() { scrollToElement('tipo-estudio-search'); }, 350);
+    });
+  });
+
+  // Al seleccionar un tipo de estudio, scroll al campo fecha
+  DOM.tipoEstudioContainer.addEventListener('change', function() {
+    setTimeout(function() {
+      scrollToElement('fecha-hora');
+    }, 400);
+  });
+
+  // Al llenar la fecha, scroll a comentarios
+  var fechaEl = document.getElementById('fecha-hora');
+  if (fechaEl) {
+    fechaEl.addEventListener('change', function() {
+      if (this.value) {
+        setTimeout(function() { scrollToElement('comentarios'); }, 350);
+      }
+    });
+  }
+}
+
+function scrollToElement(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+
+  // Solo hacer scroll si el elemento no está completamente visible
+  var rect = el.getBoundingClientRect();
+  var windowHeight = window.innerHeight;
+  if (rect.top < 60 || rect.bottom > windowHeight - 100) {
+    // Calculamos la posición deseada manualmente para un scroll más suave y centrado
+    var targetY = window.pageYOffset + rect.top - (windowHeight * 0.35);
+    smoothScrollTo(targetY, 600);
+  }
+}
+
+function smoothScrollTo(targetY, duration) {
+  var startY = window.pageYOffset;
+  var diff = targetY - startY;
+  if (Math.abs(diff) < 10) return; // No scrollear si la diferencia es mínima
+
+  var startTime = null;
+
+  function step(timestamp) {
+    if (!startTime) startTime = timestamp;
+    var elapsed = timestamp - startTime;
+    var progress = Math.min(elapsed / duration, 1);
+
+    // Easing: ease-out cubic para que desacelere al final
+    var ease = 1 - Math.pow(1 - progress, 3);
+
+    window.scrollTo(0, startY + diff * ease);
+
+    if (progress < 1) {
+      requestAnimationFrame(step);
+    }
+  }
+
+  requestAnimationFrame(step);
+}
+
+// ─── ATAJOS DE TECLADO ────────────────────────────────────────
+function bindKeyboardShortcuts() {
+  document.addEventListener('keydown', function(e) {
+    // Ctrl+Enter o Cmd+Enter para enviar formulario / confirmar revisión
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+
+      // Si estamos en la pantalla de revisión → confirmar
+      if (!DOM.reviewScreen.classList.contains('hidden') && !DOM.btnConfirm.disabled) {
+        DOM.btnConfirm.click();
+        return;
+      }
+
+      // Si estamos en el formulario → submit
+      if (DOM.formSection.style.display !== 'none' && !DOM.btnSubmit.disabled) {
+        DOM.btnSubmit.click();
+        return;
+      }
+    }
+  });
+}
+
 // ─── AUTOGUARDADO DE BORRADOR (localStorage) ──────────────────
 function scheduleDraftSave() {
   if (draftTimer) clearTimeout(draftTimer);
@@ -249,6 +487,7 @@ function saveDraft() {
       tipoSolicitud: document.getElementById('tipo-solicitud').value,
       tiposEstudio:  getSelectedTipos(),
       fechaHora:     document.getElementById('fecha-hora').value,
+      comentarios:   document.getElementById('comentarios').value,
       savedAt:       new Date().toISOString(),
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
@@ -272,26 +511,98 @@ function restoreDraft() {
       return;
     }
 
-    // Restaurar campos
-    if (draft.solicitud)     document.getElementById('solicitud').value = draft.solicitud;
-    if (draft.poliza)        document.getElementById('poliza').value = draft.poliza;
-    if (draft.tipoSolicitud) document.getElementById('tipo-solicitud').value = draft.tipoSolicitud;
-    if (draft.fechaHora)     document.getElementById('fecha-hora').value = draft.fechaHora;
+    // Verificar si hay datos significativos en el borrador
+    var hasData = draft.solicitud || draft.poliza || draft.tipoSolicitud || draft.fechaHora ||
+      (draft.tiposEstudio && draft.tiposEstudio.length > 0);
+    if (!hasData) return;
 
-    // Restaurar checkboxes de tipos de estudio
-    if (draft.tiposEstudio && draft.tiposEstudio.length > 0) {
-      var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]');
-      checkboxes.forEach(function(cb) {
-        if (draft.tiposEstudio.indexOf(cb.value) !== -1) {
-          cb.checked = true;
-        }
-      });
-      handleTipoChange();
-    }
-
-    console.log('[restoreDraft] Borrador restaurado del', draft.savedAt);
+    // Preguntar al usuario
+    showDraftBanner(draft);
   } catch (e) {
     // Error parsing o localStorage no disponible — ignorar
+  }
+}
+
+function showDraftBanner(draft) {
+  var banner = document.createElement('div');
+  banner.id = 'draft-banner';
+  banner.className = 'mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center gap-3 animate-fade-in-up';
+  banner.innerHTML =
+    '<div class="flex items-center gap-2 flex-1">' +
+      '<svg class="w-5 h-5 text-blue-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+        '<path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>' +
+      '</svg>' +
+      '<div>' +
+        '<p class="text-sm font-semibold text-slate-800">Tienes un registro en progreso</p>' +
+        '<p class="text-xs text-slate-500 mt-0.5">Solicitud ' + (draft.solicitud || '—') + ' · Guardado ' + _formatDraftTime(draft.savedAt) + '</p>' +
+      '</div>' +
+    '</div>' +
+    '<div class="flex gap-2 w-full sm:w-auto">' +
+      '<button type="button" id="draft-continue" class="flex-1 sm:flex-none px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors">Continuar</button>' +
+      '<button type="button" id="draft-discard" class="flex-1 sm:flex-none px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 text-xs font-semibold rounded-lg transition-colors">Nuevo</button>' +
+    '</div>';
+
+  DOM.form.insertBefore(banner, DOM.form.firstChild);
+
+  document.getElementById('draft-continue').addEventListener('click', function() {
+    applyDraft(draft);
+    removeDraftBanner();
+  });
+
+  document.getElementById('draft-discard').addEventListener('click', function() {
+    clearDraft();
+    removeDraftBanner();
+    document.getElementById('solicitud').focus();
+  });
+}
+
+function applyDraft(draft) {
+  if (draft.solicitud)     document.getElementById('solicitud').value = draft.solicitud;
+  if (draft.poliza)        document.getElementById('poliza').value = draft.poliza;
+  if (draft.tipoSolicitud) setTipoSolicitudValue(draft.tipoSolicitud);
+  if (draft.fechaHora)     document.getElementById('fecha-hora').value = draft.fechaHora;
+  if (draft.comentarios) {
+    document.getElementById('comentarios').value = draft.comentarios;
+    var countEl = document.getElementById('comentarios-count');
+    if (countEl) countEl.textContent = draft.comentarios.length;
+  }
+
+  if (draft.tiposEstudio && draft.tiposEstudio.length > 0) {
+    var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]');
+    checkboxes.forEach(function(cb) {
+      if (draft.tiposEstudio.indexOf(cb.value) !== -1) {
+        cb.checked = true;
+      }
+    });
+    handleTipoChange();
+  }
+
+  console.log('[restoreDraft] Borrador restaurado del', draft.savedAt);
+}
+
+function removeDraftBanner() {
+  var banner = document.getElementById('draft-banner');
+  if (banner) {
+    banner.style.opacity = '0';
+    banner.style.transform = 'translateY(-8px)';
+    banner.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+    setTimeout(function() { banner.remove(); }, 200);
+  }
+}
+
+function _formatDraftTime(isoStr) {
+  try {
+    var d = new Date(isoStr);
+    var now = new Date();
+    var diffMs = now - d;
+    var diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'hace un momento';
+    if (diffMin < 60) return 'hace ' + diffMin + ' min';
+    var diffHrs = Math.floor(diffMin / 60);
+    if (diffHrs < 24) return 'hace ' + diffHrs + 'h';
+    return d.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return '';
   }
 }
 
@@ -302,6 +613,12 @@ function clearDraft() {
 function handleTipoChange() {
   selectedTipos = getSelectedTipos();
   console.log('[handleTipoChange] Tipos seleccionados:', JSON.stringify(selectedTipos));
+
+  // Limpiar error de tipo si hay selección
+  if (selectedTipos.length > 0) clearError('err-tipo');
+
+  // Renderizar chips de seleccionados
+  renderSelectedChips();
 
   DOM.hintSi.classList.add('hidden');
   DOM.hintSi.classList.remove('bg-emerald-50', 'border-emerald-200', 'text-emerald-700', 'flex');
@@ -328,6 +645,39 @@ function handleTipoChange() {
   }
 
   scheduleDraftSave();
+}
+
+function renderSelectedChips() {
+  var container = document.getElementById('tipo-selected-chips');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  if (selectedTipos.length === 0) {
+    container.classList.add('hidden');
+    return;
+  }
+
+  container.classList.remove('hidden');
+
+  selectedTipos.forEach(function(tipo) {
+    var chip = document.createElement('span');
+    chip.className = 'inline-flex items-center gap-1 px-2.5 py-1 bg-brand-red/10 border border-brand-red/20 rounded-full text-xs font-medium text-brand-red cursor-pointer hover:bg-brand-red/20 transition-colors';
+    chip.innerHTML = escapeHtml(tipo) +
+      '<svg class="w-3 h-3 shrink-0 opacity-60 hover:opacity-100" viewBox="0 0 20 20" fill="currentColor">' +
+        '<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>' +
+      '</svg>';
+    chip.title = 'Click para quitar';
+    chip.addEventListener('click', function() {
+      // Desmarcar el checkbox correspondiente
+      var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]');
+      checkboxes.forEach(function(cb) {
+        if (cb.value === tipo) cb.checked = false;
+      });
+      handleTipoChange();
+    });
+    container.appendChild(chip);
+  });
 }
 
 // ─── DRAG & DROP ───────────────────────────────────────────────
@@ -573,18 +923,18 @@ function uploadFile(file, solicitud, tipoEstudio, onProgress) {
 
 function showReviewScreen(result, payload) {
   console.log('[showReviewScreen] Mostrando pantalla de revisión — ID:', result.id);
-  window.scrollTo(0, 0);
-  DOM.formSection.style.display = 'none';
-  DOM.successScreen.classList.add('hidden');
-  DOM.reviewScreen.classList.remove('hidden');
-  DOM.reviewScreen.classList.add('animate-fade-in-up');
+  
+  // Transición suave: primero ocultar formulario con fade, luego mostrar review
+  DOM.formSection.style.opacity = '0';
+  DOM.formSection.style.transform = 'translateY(-8px)';
+  DOM.formSection.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
 
-  // Poblar tabla de resumen
+  // Preparar datos del resumen
   var folderLink = result.folderUrl
     ? '<a href="' + result.folderUrl + '" target="_blank" class="text-blue-600 underline hover:text-blue-800">Abrir carpeta</a>'
     : '—';
 
-  DOM.reviewMeta.innerHTML = [
+  var metaHtml = [
     row('ID de Registro',       '#' + result.id),
     row('N.º de Solicitud', payload.solicitud),
     row('N.º de Póliza', payload.poliza),
@@ -596,10 +946,30 @@ function showReviewScreen(result, payload) {
     row('Registrado por',       result.userName),
     row('Email',                result.userEmail),
     row('Fecha de registro',    result.ts),
+    payload.comentarios ? row('Comentarios', '<span class="text-slate-600 italic">' + escapeHtml(payload.comentarios) + '</span>') : '',
   ].join('');
 
-  renderReviewFiles();
-  hideReviewAlert();
+  setTimeout(function() {
+    DOM.formSection.style.display = 'none';
+    DOM.formSection.style.opacity = '';
+    DOM.formSection.style.transform = '';
+    DOM.formSection.style.transition = '';
+
+    DOM.successScreen.classList.add('hidden');
+    DOM.reviewScreen.classList.remove('hidden');
+    DOM.reviewScreen.classList.add('animate-fade-in-up');
+
+    // Poblar contenido después de que sea visible
+    DOM.reviewMeta.innerHTML = metaHtml;
+    renderReviewFiles();
+    hideReviewAlert();
+
+    // Scroll suave al inicio
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Focus al botón de confirmar para accesibilidad y atajos
+    setTimeout(function() { DOM.btnConfirm.focus(); }, 400);
+  }, 200);
 }
 
 function renderReviewFiles() {
@@ -732,39 +1102,63 @@ function revokeReviewUrls() {
 
 function handleCorrect() {
   console.log('[handleCorrect] Volviendo al formulario para corrección');
-  window.scrollTo(0, 0);
-  DOM.reviewScreen.classList.add('hidden');
-  DOM.reviewScreen.classList.remove('animate-fade-in-up');
-  DOM.formSection.style.display = '';
-  revokeReviewUrls();
-  hideReviewAlert();
+  
+  // Transición suave de salida del review
+  DOM.reviewScreen.style.opacity = '0';
+  DOM.reviewScreen.style.transform = 'translateY(-8px)';
+  DOM.reviewScreen.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
 
-  if (pendingRegistro && pendingRegistro.payload) {
-    var p = pendingRegistro.payload;
-    document.getElementById('solicitud').value = p.solicitud || '';
-    document.getElementById('poliza').value = p.poliza || '';
-    document.getElementById('tipo-solicitud').value = p.tipoSolicitud || '';
-    document.getElementById('fecha-hora').value = p.fechaHora || '';
+  setTimeout(function() {
+    DOM.reviewScreen.classList.add('hidden');
+    DOM.reviewScreen.classList.remove('animate-fade-in-up');
+    DOM.reviewScreen.style.opacity = '';
+    DOM.reviewScreen.style.transform = '';
+    DOM.reviewScreen.style.transition = '';
+    
+    DOM.formSection.style.display = '';
+    DOM.formSection.classList.add('animate-fade-in-up');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    revokeReviewUrls();
+    hideReviewAlert();
 
-    // Restaurar checkboxes
-    var tiposArr = (p.tipoEstudio || '').split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
-    var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]');
-    checkboxes.forEach(function(cb) {
-      cb.checked = tiposArr.indexOf(cb.value) !== -1;
-    });
-    handleTipoChange();
-  }
+    if (pendingRegistro && pendingRegistro.payload) {
+      var p = pendingRegistro.payload;
+      document.getElementById('solicitud').value = p.solicitud || '';
+      document.getElementById('poliza').value = p.poliza || '';
+      setTipoSolicitudValue(p.tipoSolicitud || '');
+      document.getElementById('fecha-hora').value = p.fechaHora || '';
+      document.getElementById('comentarios').value = p.comentarios || '';
+      var countEl = document.getElementById('comentarios-count');
+      if (countEl) countEl.textContent = (p.comentarios || '').length;
 
-  renderFileList();
-  isCorrection = true;
+      // Restaurar checkboxes
+      var tiposArr = (p.tipoEstudio || '').split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t.length > 0; });
+      var checkboxes = DOM.tipoEstudioContainer.querySelectorAll('input[name="tipo-estudio"]');
+      checkboxes.forEach(function(cb) {
+        cb.checked = tiposArr.indexOf(cb.value) !== -1;
+      });
+      handleTipoChange();
+    }
+
+    renderFileList();
+    isCorrection = true;
+
+    // Auto-focus al primer campo tras la transición
+    setTimeout(function() {
+      document.getElementById('solicitud').focus();
+      DOM.formSection.classList.remove('animate-fade-in-up');
+    }, 400);
+  }, 200);
 }
 
 function handleConfirm() {
-  console.log('[handleConfirm] Confirmando registro ID:', pendingRegistro ? pendingRegistro.id : 'N/A');
-  if (!pendingRegistro) return;
+  console.log('[handleConfirm] Confirmando registro');
+  if (!pendingRegistro || !pendingRegistro.payload) return;
 
   setConfirmLoading(true);
   hideReviewAlert();
+
+  var payload = pendingRegistro.payload;
 
   google.script.run
     .withSuccessHandler(function(result) {
@@ -773,7 +1167,7 @@ function handleConfirm() {
         revokeReviewUrls();
         DOM.reviewScreen.classList.add('hidden');
         DOM.reviewScreen.classList.remove('animate-fade-in-up');
-        showSuccess(result, pendingRegistro.payload);
+        showSuccess(result, payload);
         pendingRegistro = null;
         isCorrection = false;
       } else {
@@ -784,7 +1178,7 @@ function handleConfirm() {
       setConfirmLoading(false);
       showReviewAlert('Error: ' + (err.message || err));
     })
-    .confirmRegistro(pendingRegistro.id);
+    .confirmRegistro(payload);
 }
 
 function setConfirmLoading(on) {
@@ -822,6 +1216,7 @@ async function handleSubmit(e) {
   var tipoEstudio    = tiposEstudio.join(', ');
   var fechaHora      = document.getElementById('fecha-hora').value;
   var tipoSolicitud  = document.getElementById('tipo-solicitud').value;
+  var comentarios    = document.getElementById('comentarios').value.trim();
 
   console.log('[handleSubmit] Datos del formulario:', JSON.stringify({ solicitud: solicitud, poliza: poliza, tipoEstudio: tipoEstudio, fechaHora: fechaHora, archivos: selectedFiles.length, isCorrection: isCorrection }));
 
@@ -829,31 +1224,29 @@ async function handleSubmit(e) {
     var filesCount = selectedFiles.length;
     var filesChanged = isCorrection && (filesCount !== originalFilesCount);
 
-    if (isCorrection && filesChanged && pendingRegistro) {
-      // Limpiar archivos anteriores antes de re-subir
-      var prevSolicitud = pendingRegistro.payload.solicitud;
-      await new Promise(function(resolve, reject) {
-        google.script.run
-          .withSuccessHandler(resolve)
-          .withFailureHandler(reject)
-          .clearSolicitudFiles(prevSolicitud);
-      });
+    // 1. Pre-resolver carpeta UNA SOLA VEZ
+    showUploadProgress(true);
+    updateUploadLabel('Preparando carpeta...');
+    updateUploadBar(5);
+
+    var folderId = null;
+    var folderRes = await new Promise(function(resolve, reject) {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .getOrCreateFolderId(solicitud);
+    });
+    if (folderRes && folderRes.success) {
+      folderId = folderRes.folderId;
+      console.log('[handleSubmit] Carpeta pre-resuelta — folderId:', folderId);
+      updateUploadBar(15);
+      updateUploadLabel('Carpeta lista, procesando...');
+    } else {
+      showUploadProgress(false);
+      throw new Error((folderRes && folderRes.error) || 'No se pudo crear/encontrar la carpeta');
     }
 
-    // Subir archivos si es nuevo registro o si los archivos cambiaron
-    if (filesCount > 0 && (!isCorrection || filesChanged)) {
-      showUploadProgress(true);
-      for (var i = 0; i < filesCount; i++) {
-        updateUploadLabel('Subiendo ' + (i + 1) + ' de ' + filesCount + ': ' + selectedFiles[i].name);
-        await uploadFile(selectedFiles[i], solicitud, tipoEstudio, function() {
-          var pct = Math.round(((i + 1) / filesCount) * 100);
-          updateUploadBar(pct);
-        });
-      }
-      updateUploadLabel('Archivos subidos correctamente');
-      updateUploadBar(100);
-    }
-
+    // 2. Preparar payload para submitFormData
     var payload = {
       solicitud:     solicitud,
       poliza:        poliza,
@@ -861,42 +1254,70 @@ async function handleSubmit(e) {
       tipoSolicitud: tipoSolicitud,
       fechaHora:     fechaHora,
       filesCount:    filesCount,
+      folderId:      folderId,
+      comentarios:   comentarios,
     };
 
-    var result;
-    if (isCorrection && pendingRegistro) {
-      // Modo corrección: actualizar registro existente
-      payload.registroId = pendingRegistro.id;
-      console.log('[handleSubmit] Actualizando registro existente:', JSON.stringify(payload));
-      result = await new Promise(function(resolve, reject) {
-        google.script.run
-          .withSuccessHandler(resolve)
-          .withFailureHandler(reject)
-          .updateRegistro(payload);
+    // 3. Lanzar uploads (limpiar carpeta solo si ya hubo un intento previo)
+    if (filesCount > 0 && (!isCorrection || filesChanged)) {
+      // Solo limpiar si ya hay un intento anterior (evita la llamada innecesaria la primera vez)
+      if (originalFilesCount > 0 || isCorrection) {
+        updateUploadLabel('Preparando carpeta...');
+        await new Promise(function(resolve, reject) {
+          google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject)
+            .clearSolicitudFiles(solicitud);
+        });
+        updateUploadBar(20);
+      }
+      updateUploadLabel('Subiendo archivos...');
+
+      // Leer todos los archivos como base64 en paralelo (local, rápido)
+      var base64Reads = selectedFiles.map(function(file) {
+        return readFileAsBase64(file).then(function(base64) {
+          return { file: file, base64: base64 };
+        });
       });
-    } else {
-      // Modo nuevo: crear registro pendiente
-      console.log('[handleSubmit] Creando nuevo registro:', JSON.stringify(payload));
-      result = await new Promise(function(resolve, reject) {
-        google.script.run
-          .withSuccessHandler(resolve)
-          .withFailureHandler(reject)
-          .submitFormData(payload);
+
+      var fileDataArray = await Promise.all(base64Reads);
+      console.log('[handleSubmit] Todos los archivos leídos como base64');
+      updateUploadBar(25);
+
+      // Subir archivos en paralelo (máx 4 concurrentes)
+      var MAX_CONCURRENT = 4;
+      var completed = 0;
+
+      await runParallelUploads(fileDataArray, solicitud, tipoEstudio, folderId, MAX_CONCURRENT, function() {
+        completed++;
+        var pct = 25 + Math.round((completed / filesCount) * 65);
+        updateUploadBar(pct);
+        updateUploadLabel('Subido ' + completed + ' de ' + filesCount + ' archivo(s)');
       });
+
+      updateUploadBar(100);
+      updateUploadLabel('Archivos subidos correctamente');
     }
 
     setLoading(false);
     showUploadProgress(false);
 
-    if (result.success) {
-      pendingRegistro = { id: result.id, result: result, payload: payload };
-      originalFilesCount = filesCount;
-      isCorrection = false;
-      clearDraft();
-      showReviewScreen(result, payload);
-    } else {
-      showAlert(result.error || 'Error desconocido.');
-    }
+    // Pasar a la pantalla de revisión (sin escribir nada en el sheet todavía)
+    var uData = userData;
+    var reviewResult = {
+      success:    true,
+      userName:   uData.name,
+      userEmail:  uData.email,
+      ts:         new Date().toLocaleString('es-CO'),
+      filesCount: filesCount,
+      folderUrl:  '', // Se obtendrá al confirmar
+    };
+
+    pendingRegistro = { payload: payload };
+    originalFilesCount = filesCount;
+    isCorrection = false;
+    clearDraft();
+    showReviewScreen(reviewResult, payload);
 
   } catch (err) {
     setLoading(false);
@@ -905,12 +1326,58 @@ async function handleSubmit(e) {
   }
 }
 
+/**
+ * Ejecuta uploads en paralelo con un límite de concurrencia.
+ */
+function runParallelUploads(fileDataArray, solicitud, tipoEstudio, folderId, maxConcurrent, onFileComplete) {
+  var index = 0;
+  var total = fileDataArray.length;
+
+  function uploadNext() {
+    if (index >= total) return Promise.resolve();
+    var current = fileDataArray[index];
+    index++;
+
+    var uploadParams = {
+      base64:      current.base64,
+      fileName:    current.file.name,
+      fileType:    current.file.type || 'application/octet-stream',
+      solicitud:   solicitud,
+      tipoEstudio: tipoEstudio,
+      folderId:    folderId,
+    };
+
+    return new Promise(function(resolve, reject) {
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (res && res.success) {
+            if (onFileComplete) onFileComplete();
+            resolve();
+          } else {
+            reject(new Error((res && res.error) || 'Error subiendo ' + current.file.name));
+          }
+        })
+        .withFailureHandler(function(err) {
+          reject(err);
+        })
+        .uploadSingleFile(uploadParams);
+    }).then(uploadNext);
+  }
+
+  // Iniciar N workers en paralelo
+  var workers = [];
+  for (var i = 0; i < Math.min(maxConcurrent, total); i++) {
+    workers.push(uploadNext());
+  }
+  return Promise.all(workers);
+}
+
 // ─── UI HELPERS ────────────────────────────────────────────────
 function setLoading(on) {
   DOM.btnSubmit.disabled = on;
   DOM.spinner.classList.toggle('hidden', !on);
   DOM.spinner.classList.toggle('inline-block', on);
-  DOM.btnText.textContent = on ? 'Registrando...' : 'Registrar Solicitud';
+  DOM.btnText.textContent = on ? 'Procesando...' : 'Revisar y Continuar';
 }
 
 function showAlert(msg) {
@@ -930,22 +1397,60 @@ function showUploadProgress(show) {
     DOM.uploadModal.classList.remove('hidden');
     var firstName = (userData.name || 'Usuario').split(' ')[0];
     DOM.modalTitle.textContent = firstName + ', estamos procesando tu solicitud';
-    DOM.modalMessage.textContent = 'Tus documentos se están siendo registrados. Solo tomará unos segundos, gracias por tu paciencia.';
+    DOM.modalMessage.textContent = 'Tus documentos se están registrando. Solo tomará unos segundos.';
     DOM.modalLabel.textContent = 'Preparando...';
     DOM.modalPct.textContent = '0%';
     DOM.modalBar.style.width = '0%';
+    // Iniciar animación de progreso simulado
+    startSimulatedProgress();
   } else {
+    stopSimulatedProgress();
     DOM.uploadModal.classList.add('hidden');
     updateUploadBar(0);
     DOM.uploadDetail.textContent = '';
   }
 }
 
+// Progreso simulado que avanza lentamente para dar sensación de actividad
+var _simProgressTimer = null;
+var _simProgressValue = 0;
+var _realProgressValue = 0;
+
+function startSimulatedProgress() {
+  _simProgressValue = 0;
+  _realProgressValue = 0;
+  clearInterval(_simProgressTimer);
+  _simProgressTimer = setInterval(function() {
+    // Avanza solo si el progreso real no lo ha superado
+    if (_simProgressValue < _realProgressValue) {
+      _simProgressValue = _realProgressValue;
+    } else if (_simProgressValue < 90) {
+      // Avance lento y decreciente (nunca llega a 90 sin progreso real)
+      var increment = Math.max(0.3, (90 - _simProgressValue) * 0.02);
+      _simProgressValue = Math.min(_simProgressValue + increment, 90);
+    }
+    DOM.modalBar.style.width = _simProgressValue + '%';
+    DOM.modalPct.textContent = Math.round(_simProgressValue) + '%';
+    DOM.uploadBar.style.width = _simProgressValue + '%';
+    DOM.uploadPct.textContent = Math.round(_simProgressValue) + '%';
+  }, 150);
+}
+
+function stopSimulatedProgress() {
+  clearInterval(_simProgressTimer);
+  _simProgressTimer = null;
+}
+
 function updateUploadBar(pct) {
-  DOM.uploadBar.style.width = pct + '%';
-  DOM.uploadPct.textContent = pct + '%';
-  DOM.modalBar.style.width = pct + '%';
-  DOM.modalPct.textContent = pct + '%';
+  _realProgressValue = pct;
+  // Si el progreso real supera el simulado, saltar al real
+  if (pct > _simProgressValue) {
+    _simProgressValue = pct;
+    DOM.uploadBar.style.width = pct + '%';
+    DOM.uploadPct.textContent = pct + '%';
+    DOM.modalBar.style.width = pct + '%';
+    DOM.modalPct.textContent = pct + '%';
+  }
 }
 
 function updateUploadLabel(text) {
@@ -981,6 +1486,7 @@ function showSuccess(result, payload) {
       row('Registrado por',       result.userName),
       row('Email',                result.userEmail),
       row('Fecha de registro',    result.ts),
+      payload.comentarios ? row('Comentarios', '<span class="text-slate-600 italic">' + escapeHtml(payload.comentarios) + '</span>') : '',
     ].join('');
   }
 
@@ -1000,9 +1506,10 @@ function formatDT(dt) {
 // ─── RESET ─────────────────────────────────────────────────────
 function reset() {
   console.log('[App.reset] Reiniciando formulario');
-  window.scrollTo(0, 0);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
   clearDraft();
   DOM.form.reset();
+  setTipoSolicitudValue('');
   selectedTipos = [];
   pendingRegistro = null;
   isCorrection = false;
@@ -1029,6 +1536,8 @@ function reset() {
   if (DOM.tipoSearchCount) DOM.tipoSearchCount.classList.add('hidden');
   var labels = DOM.tipoEstudioContainer.querySelectorAll('label');
   labels.forEach(function(label) { label.style.display = ''; });
+  // Auto-focus al primer campo
+  setTimeout(function() { document.getElementById('solicitud').focus(); }, 300);
 }
 
 // ─── API PÚBLICA ───────────────────────────────────────────────
