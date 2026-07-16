@@ -457,16 +457,15 @@ function confirmRegistro(data) {
     sheet.getRange(lastRow, 8).setNumberFormat('dd/MM/yyyy HH:mm:ss');
 
     // 2. Lógica de negocio para consolidador
-    var tipoDeProceso = "Reestudio";
-    var claseDeSolicitud = "Anexo";
+    var tipoDeProceso = "Anexo";
+    var claseDeSolicitud = "Reestudio";
     if (tiposArray.indexOf("Nueva UAR") !== -1) {
-      tipoDeProceso = "Nueva";
+      claseDeSolicitud = "Nueva";
     } else if (tiposArray.indexOf("Deudor UAR") !== -1) {
-      tipoDeProceso = "Adicional";
+      claseDeSolicitud = "Adicional";
     } else if (tiposArray.indexOf("Biometría Fallida") !== -1) {
-      tipoDeProceso = "Biometría Fallida";
-    }
-    if (tiposArray.indexOf("Asegurada") !== -1) {
+      claseDeSolicitud = "Biometría Fallida";
+    } else if (tiposArray.indexOf("Asegurada") !== -1) {
       claseDeSolicitud = "Asegurada";
     }
 
