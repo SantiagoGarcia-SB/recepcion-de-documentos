@@ -143,6 +143,8 @@ function respaldarDocumentosInfobip() {
           '',                  // 16. minutos_gestion
           '',                  // 17. minutos_general
           '',                  // 18. poliza
+          '',                  // 19. nombreRadicador
+          '',                  // 20. correoRadicador
         ]);
       }
 

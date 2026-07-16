@@ -492,6 +492,8 @@ function confirmRegistro(data) {
         '',                         // 16. minutos_gestion
         '',                         // 17. minutos_general
         polizaStr,                  // 18. poliza
+        uData.name,                 // 19. nombreRadicador
+        uData.email,                // 20. correoRadicador
       ]);
       console.log('[confirmRegistro] Registro agregado a hoja de consolidado.');
     } catch (destErr) {
