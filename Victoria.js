@@ -129,8 +129,8 @@ function respaldarDocumentosInfobip() {
           nroStr,              // 2. solicitud
           urlCarpeta,          // 3. linkDrive
           'VICTORIA',          // 4. origen
-          'Reestudio',         // 5. tipoDeProceso
-          'Anexo',             // 6. claseDeSolicitud
+          'Anexo',             // 5. tipoDeProceso
+          'Reestudio',         // 6. claseDeSolicitud
           '',                  // 7. analistaAsignado
           '',                  // 8. nombreAnalista
           '',                  // 9. fechaAsignacion
